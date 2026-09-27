@@ -1,0 +1,27 @@
+Usa Thymeleaf para conectar o html no Java
+
+Documentação básica do Thymeleaf:
+
+Mapeamento de Formulários e Envio de Dados:
+    th:action: Define a URL do endpoint Java no Controller para onde o formulário será enviado quando o usuário clicar no botão de enviar (ex: @PostMaping).
+    th:object: Associa o formulário inteiro a um objeto Java (geralmente um DTO ou classe Model) enviado pelo Controller.
+    th:field: Mapeia o campo do formulário (ex: <input>, <select>) para um atributo específico do objeto definido no th:object, gerando automaticamente os atributos name, id e value.
+
+Exibição de Dados e Textos:
+    th:text: Substitui o texto interno do elemento HTML pelo valor retornado de uma variável ou método do Java.
+    th:value: Define o valor do atributo value de um campo de entrada (como um <input> ou <button>) com o dado dinâmico do Java.
+    th:attr: Permite definir ou alterar o valor de qualquer atributo HTML genérico (como data-id, placeholder ou title) usando dados do Java.
+
+Lógica e Estrutura (Loops e Condições):
+    th:each: Percorre uma lista/coleção vinda do Java (como a lista de Mocktails ou de Ingredientes no banco) criando um elemento HTML para cada item.
+    th:if: Renderiza e exibe o elemento HTML na tela apenas se a condição especificada for verdadeira (ex: drink.disponivel == true).
+    th:unless: Renderiza o elemento HTML apenas se a condição for falsa (funciona como o inverso do th:if).
+
+Manipulação de Arquivos e Links:
+    th:href: Monta e gerencia URLs de links de navegação (<a>) ou importação de arquivos CSS (<link>), garantindo que o caminho do projeto no servidor fique correto.
+    th:src: Define o caminho correto para carregar arquivos estáticos de mídia ou scripts (como imagens .png e arquivos JavaScript na pasta static).
+
+Expressões Especiais do Thymeleaf:
+    ${...}: Sintaxe para ler variáveis, listas e atributos que foram adicionados pelo Controller Java através do model.addAttribute().
+    *{...}: Sintaxe de seleção reduzida usada junto com o th:object para acessar diretamente as propriedades do objeto associado ao formulário.
+    @{...}: Sintaxe de contexto para formatar e gerar URLs do servidor (como rotas de Controllers ou caminhos de arquivos CSS/JS).
