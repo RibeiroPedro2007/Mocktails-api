@@ -8,7 +8,7 @@ import java.util.List;
 //JPA
 @Entity
 @Table(name = "drink")
-//Lombook
+//Lombok
 @Data
 @NoArgsConstructor
 public class Drink {

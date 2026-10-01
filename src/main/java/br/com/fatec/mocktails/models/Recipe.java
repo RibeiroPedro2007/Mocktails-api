@@ -7,7 +7,7 @@ import lombok.NoArgsConstructor;
 //JPA
 @Entity
 @Table(name = "recipe")
-//Lombook
+//Lombok
 @Data
 @NoArgsConstructor
 public class Recipe {
@@ -21,8 +21,8 @@ public class Recipe {
     private Drink drink;
 
     @ManyToOne
-    @JoinColumn(name = "input_id", nullable = false)
-    private Input input;
+    @JoinColumn(name = "ingredient_id", nullable = false)
+    private Ingredient ingredient;
 
     @Column(nullable = false)
     private Double QuantityMl;

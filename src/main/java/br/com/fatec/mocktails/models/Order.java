@@ -9,7 +9,7 @@ import java.time.LocalDateTime;
 //JPA
 @Entity
 @Table(name = "request")
-//Lombook
+//Lombok
 @Data
 @NoArgsConstructor
 public class Order {

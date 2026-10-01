@@ -6,11 +6,11 @@ import lombok.NoArgsConstructor;
 
 //JPA
 @Entity
-@Table(name = "input")
-//Lombook
+@Table(name = "ingredient")
+//Lombok
 @Data
 @NoArgsConstructor
-public class Input {
+public class Ingredient {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
@@ -22,7 +22,7 @@ public class Input {
     private Double currentQuantityMl;
 
     @Column(nullable = false)
-    private Double maximumCapacityMl;
+    private Double maxCapacityMl;
 
     @Column(nullable = false)
     private Integer pumpPin;
