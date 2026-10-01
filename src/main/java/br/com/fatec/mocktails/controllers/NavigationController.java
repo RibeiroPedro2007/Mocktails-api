@@ -4,9 +4,9 @@ import org.springframework.stereotype.Controller;
 import org.springframework.web.bind.annotation.GetMapping;
 
 @Controller
-public class NavegacaoController {
+public class NavigationController {
 
-    @GetMapping({"/", "/Operation"}) //Quando acessar a raiz (http://localhost:8080/) ou /operacao, pois operação é a tela principal
+    @GetMapping({"/", "/Operation"}) //When to access the root (http://localhost:8080/) or /Operation, because he is the main screen
     public String OperationScreen() {return "Operation";}
 
     @GetMapping("/Management")
