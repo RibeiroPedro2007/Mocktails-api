@@ -35,21 +35,35 @@ public class DrinkService {
         drink.setName(dto.getName());
         drink.setActive(dto.getActive() != null ? dto.getActive() : true);
 
-            if (dto.getRecipes() != null) {
-                for (RecipeRequestDTO item : dto.getRecipes()) {
-                    Ingredient ingredient = ingredientRepository.findById(item.getIngredientId())
-                            .orElseThrow(() -> new RuntimeException("Ingredient not found with id: " + item.getIngredientId()));
+        if (dto.getRecipes() != null) {
+            for (RecipeRequestDTO item : dto.getRecipes()) {
+                Ingredient ingredient = ingredientRepository.findById(item.getIngredientId())
+                        .orElseThrow(() -> new RuntimeException("Ingredient not found with id: " + item.getIngredientId()));
 
-                    Recipe recipe = new Recipe();
-                    recipe.setDrink(drink);
-                    recipe.setIngredient(ingredient);
-                    recipe.setQuantityMl(item.getQuantityMl());
-                    recipe.setDosageTimeMs(item.getDosageTimeMs());
+                Recipe recipe = new Recipe();
+                recipe.setDrink(drink);
+                recipe.setIngredient(ingredient);
+                recipe.setQuantityMl(item.getQuantityMl());
+                recipe.setDosageTimeMs(item.getDosageTimeMs());
 
-                    drink.getRecipes().add(recipe);
-                }
+                drink.getRecipes().add(recipe);
+            }
         }
 
         return drinkRepository.save(drink);
+    }
+
+    @Transactional
+    public void SetDrinkActivation(Long id, Boolean active) {
+        Drink drink = findById(id);
+
+        drink.setActive(active);
+        drinkRepository.save(drink);
+    }
+
+    @Transactional
+    public void delete(Long id) {
+        Drink drink = findById(id);
+        drinkRepository.delete(drink);
     }
 }

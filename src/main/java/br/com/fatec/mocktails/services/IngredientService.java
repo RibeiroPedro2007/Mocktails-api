@@ -5,6 +5,7 @@ import br.com.fatec.mocktails.models.Ingredient;
 import br.com.fatec.mocktails.repositories.IngredientRepository;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 
@@ -17,16 +18,25 @@ public class IngredientService {
     public List<Ingredient> findAll(){
         return ingredientRepository.findAll();
     }
+
     public Ingredient findById(Long id){
         return ingredientRepository.findById(id)
                 .orElseThrow(()-> new RuntimeException("Ingredient not found with id: " + id));
     }
+
     public Ingredient save(Ingredient ingredient){
         return ingredientRepository.save(ingredient);
     }
+
     public Ingredient updateStock(Long id, StockUpdateDTO dto){
         Ingredient ingredient = findById(id);
         ingredient.setCurrentQuantityMl(dto.getCurrentQuantityMl());
         return ingredientRepository.save(ingredient);
+    }
+
+    @Transactional
+    public void delete(Long id) {
+        Ingredient ingredient = findById(id);
+        ingredientRepository.delete(ingredient);
     }
 }

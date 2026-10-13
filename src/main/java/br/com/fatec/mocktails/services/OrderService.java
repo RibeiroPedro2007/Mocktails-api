@@ -68,4 +68,29 @@ public class OrderService {
 
         return savedOrder;
     }
+
+    @Transactional
+    public Order cancelOrder(Long id) {
+        Order order = orderRepository.findById(id)
+                .orElseThrow(() -> new RuntimeException("Order not found with id: " + id));
+
+        if ("CANCELLED".equals(order.getStatus())) {
+            throw new RuntimeException("Order is already cancelled.");
+        }
+
+        // Devolve o estoque dos ingredientes
+        for (Recipe recipe : order.getDrink().getRecipes()) {
+            Ingredient ingredient = recipe.getIngredient();
+            ingredient.setCurrentQuantityMl(ingredient.getCurrentQuantityMl() + recipe.getQuantityMl());
+            ingredientRepository.save(ingredient);
+        }
+
+        order.setStatus("CANCELLED");
+        Order savedOrder = orderRepository.save(order);
+
+        // Avisa a tela web que o pedido foi cancelado (via STOMP)
+        orderWebSocketPublisher.notifyOrderUpdate(savedOrder);
+
+        return savedOrder;
+    }
 }
