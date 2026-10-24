@@ -1,23 +1,110 @@
 <!DOCTYPE html>
-<html lang="pt-br" xmlns:th="http://www.thymeleaf.org">
+<!--
+    Operation screen: the main screen of the app.
+    Served at "/" and "/Operation" by NavigationController.
+
+    The page is mostly empty containers. Function.js fills them with data from the API
+    (drinks, orders) and keeps them updated in real time through WebSocket (STOMP).
+-->
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
 <head>
     <meta charset="UTF-8">
-    <title>Operação</title>
+    <!-- Makes the layout scale correctly on tablets and phones -->
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Mocktails · Operation</title>
+
+    <!-- Google Fonts. Optional: if the fonts cannot load, the browser uses the system fonts from Style.css -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@500;700&family=Instrument+Sans:wght@400;600&display=swap" rel="stylesheet">
+
+    <!--
+        Main stylesheet.
+        href    = relative path, used when the file is opened directly in the browser (preview only).
+        th:href = Thymeleaf replaces href with the server path (/Style.css) when Spring renders the page.
+    -->
+    <link rel="stylesheet" href="../static/Style.css" th:href="@{/Style.css}">
 </head>
 <body>
-    <h1>Gid com as bebidas:</h1>
-        <h2>1-botão de preparar drink;<br>
-            2-desativa a opção com bebidas que tão com recursos insuficientes
-            e colocar quantas o estoque consegue fazer;<br>
-        </h2>
-    <h1>Status da máquina:</h1>
-        <h2>1-conexão da máquina(on/off);<br>
-            2-barra de progresso da bebida;<br>
-            3-sensor de copo(bloquear se tiver sem(perguntar se tem sensor de copo));<br>
-        </h2>
-    <h1>Fila de pedidos</h1>
-        <h2>1-Status do pedido(concluído em preparo ou erro);<br>
-            2-Lista com os últimos 10 pedidos;<br>
-        </h2>
+    <!-- Top bar: app name and machine connection badge -->
+    <header class="top">
+        <h1>Mocktails</h1>
+        <!-- Text and color (online/offline) are updated by renderMachine() in Function.js -->
+        <span id="conn" class="pill">Machine offline</span>
+    </header>
+
+    <!-- Two columns on wide screens (menu on the left, machine and orders on the right), one column on small screens -->
+    <main class="layout">
+
+        <!-- Left column: drink menu -->
+        <section aria-labelledby="menu-title">
+            <h2 id="menu-title">Menu</h2>
+            <!--
+                Empty on purpose. renderDrinks() creates one card per active drink, with:
+                the stock gauge, how many drinks the stock can make, and the "Prepare drink" button.
+                The button is disabled when the drink is out of stock, the machine is offline or busy.
+            -->
+            <div id="drinks" class="drinks"></div>
+        </section>
+
+        <!-- Right column: machine status and order queue -->
+        <aside>
+
+            <!-- Machine status: glass that fills with the progress, state text and cup sensor -->
+            <section class="panel machine" aria-labelledby="machine-title">
+                <h2 id="machine-title">Machine</h2>
+                <div class="row">
+                    <!--
+                        The glass works as the progress bar (role="progressbar" for screen readers).
+                        aria-valuenow is updated by renderMachine().
+                        viewBox sets an internal drawing area of 120 x 160 units that scales with the width.
+                        width="120" is a fallback size in case the CSS does not load.
+                    -->
+                    <svg id="glass" class="glass" width="120" viewBox="0 0 120 160" role="progressbar"
+                         aria-label="Drink progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+                        <defs>
+                            <!-- Glass shape used as a mask, so the liquid never draws outside the glass -->
+                            <clipPath id="cup"><path d="M14 8h92l-10 134a10 10 0 0 1-10 9H34a10 10 0 0 1-10-9z"/></clipPath>
+                        </defs>
+                        <!-- The liquid is a rectangle moved up or down with a CSS transform (translateY) to show the progress -->
+                        <g clip-path="url(#cup)"><rect id="liquid" x="0" y="8" width="120" height="143"/></g>
+                        <!-- Glass outline, same shape as the mask, drawn on top of the liquid -->
+                        <path class="wall" d="M14 8h92l-10 134a10 10 0 0 1-10 9H34a10 10 0 0 1-10-9z"/>
+                    </svg>
+                    <div>
+                        <!-- Current state: "Ready", "Preparing <drink>" or "Machine offline" -->
+                        <p id="m-state" class="m-state">Machine offline</p>
+                        <!-- Progress of the current drink, from 0% to 100% -->
+                        <p id="m-pct" class="m-pct">0%</p>
+                    </div>
+                </div>
+                <!-- Cup sensor status. The sensor only runs while an order is in progress -->
+                <p id="m-cup" class="m-cup">Cup sensor: not reported</p>
+            </section>
+
+            <!-- Order queue -->
+            <section class="panel" aria-labelledby="orders-title">
+                <h2 id="orders-title">Last 10 orders</h2>
+                <!-- renderOrders() adds one item per order (newest first): id, drink, status and time -->
+                <ol id="orders" class="orders"></ol>
+            </section>
+        </aside>
+    </main>
+
+    <!--
+        Small message box, hidden until needed. toast() in Function.js shows error messages here
+        (server unreachable, order refused). aria-live="polite" makes screen readers announce the text.
+    -->
+    <div id="toast" role="status" aria-live="polite"></div>
+
+    <!--
+        Scripts go at the end of the body so the elements above already exist when they run.
+        SockJS and the STOMP client (loaded from a CDN) are used to connect to /ws-mocktails.
+        They must come before Function.js, which uses their global objects (SockJS and StompJs).
+    -->
+    <script src="https://cdn.jsdelivr.net/npm/sockjs-client@1.6.1/dist/sockjs.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@stomp/stompjs@7.0.0/bundles/stomp.umd.min.js"></script>
+    <!-- Screen logic. Same idea as the stylesheet: src for preview, th:src when rendered by Spring -->
+    <script src="../static/Function.js" th:src="@{/Function.js}"></script>
 </body>
 </html>
