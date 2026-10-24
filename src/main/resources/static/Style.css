@@ -1,0 +1,110 @@
+/* ==========================================================================
+   Style.css - Operation screen
+   Sections: design tokens, base, top bar, page layout, drink cards,
+   machine panel, order list, toast message, reduced motion.
+   ========================================================================== */
+
+/* ---------- Design tokens ----------
+   Colors and fonts are defined once here as CSS variables and reused with var(--name).
+   To change the look of the whole screen, edit these values. */
+:root {
+  --ink: #10302a;      /* main text and glass outline (dark green) */
+  --muted: #587068;    /* secondary text */
+  --bg: #edf2ee;       /* page background */
+  --card: #fff;        /* card and panel background */
+  --line: #d2dcd5;     /* thin borders and separators */
+  --brand: #0f5a46;    /* main button color */
+  --ok: #1d7a46;      /* success: online, completed */
+  --info: #1d5fa8;     /* in progress */
+  --warn: #9a5b06;     /* waiting: queued */
+  --err: #b3361f;      /* problem: offline, error */
+  --liquid: #8fcfb4;   /* default liquid color; Function.js changes it per drink */
+  /* system-ui is the fallback if the Google Fonts cannot load */
+  --display: "Bricolage Grotesque", system-ui, sans-serif;  /* titles and big numbers */
+  --text: "Instrument Sans", system-ui, sans-serif;         /* body text */
+}
+
+/* ---------- Base ---------- */
+/* Width and height include padding and border, which makes sizes easier to predict */
+* { box-sizing: border-box; }
+/* "font" shorthand: weight, size/line-height, family */
+body { margin: 0; background: var(--bg); color: var(--ink); font: 400 1rem/1.45 var(--text); }
+h1, h2, h3 { margin: 0; font-family: var(--display); line-height: 1.15; }
+h1 { font-size: 1.75rem; font-weight: 700; }
+h2 { font-size: 1.15rem; font-weight: 600; margin-bottom: .75rem; }
+h3 { font-size: 1.05rem; font-weight: 600; }
+/* Visible outline for keyboard navigation (Tab key); mouse clicks do not show it */
+:focus-visible { outline: 3px solid #2b7be0; outline-offset: 2px; }
+
+/* ---------- Top bar ---------- */
+/* Title on the left, connection badge on the right */
+.top { display: flex; justify-content: space-between; align-items: center; padding: 1rem 1.5rem; }
+/* Badge with a colored dot (the dot is the ::before pseudo-element) */
+.pill { display: inline-flex; align-items: center; gap: .5rem; padding: .4rem .9rem; border-radius: 99px;
+  background: var(--card); border: 1px solid var(--line); font-weight: 600; font-size: .9rem; }
+.pill::before { content: ""; width: .6rem; height: .6rem; border-radius: 50%; background: var(--err); }  /* red = offline */
+.pill.on::before { background: var(--ok); }  /* class "on" is added by Function.js when the machine is online */
+
+/* ---------- Page layout ---------- */
+/* Small screens: a single column. minmax(0, 1fr) lets the column shrink instead of overflowing */
+.layout { display: grid; gap: 1.5rem; padding: 0 1.5rem 2rem; grid-template-columns: minmax(0, 1fr); }
+/* Screens 960px or wider: menu takes the free space, the right column is fixed at 22rem */
+@media (min-width: 960px) { .layout { grid-template-columns: minmax(0, 1fr) 22rem; align-items: start; } }
+/* Right column: machine panel and order list stacked with a gap */
+aside { display: grid; gap: 1.5rem; }
+
+/* ---------- Drink cards ---------- */
+/* As many columns as fit, each at least 12rem wide */
+.drinks { display: grid; gap: 1rem; grid-template-columns: repeat(auto-fill, minmax(12rem, 1fr)); }
+.drink { display: flex; gap: .9rem; padding: 1rem; background: var(--card); border: 1px solid var(--line); border-radius: 14px; }
+/* Out of stock: the name is dimmed (class "empty" is set by Function.js) */
+.drink.empty h3 { color: var(--muted); }
+/* Stock gauge: a thin vertical bar. The inner <i> is filled from the bottom up.
+   --lvl (height in %) and --c (color) are set inline by Function.js for each drink */
+.gauge { flex: none; position: relative; overflow: hidden; width: .6rem; min-height: 7rem; border-radius: 99px; background: var(--line); }
+.gauge i { position: absolute; inset: auto 0 0; height: var(--lvl); background: var(--c); }
+/* Text and button column. min-width: 0 allows long drink names to wrap inside the card */
+.body { display: flex; flex-direction: column; gap: .35rem; flex: 1; min-width: 0; }
+.stock { margin: 0 0 .5rem; color: var(--muted); font-size: .9rem; }
+/* margin-top: auto pushes the button to the bottom, so all cards align. 3rem is a comfortable touch target */
+.prepare { margin-top: auto; min-height: 3rem; border: 0; border-radius: 10px; background: var(--brand);
+  color: #fff; font: 600 1rem var(--text); cursor: pointer; }
+.prepare:hover:not(:disabled) { background: #0b4636; }  /* slightly darker on hover, only when enabled */
+.prepare:disabled { background: #e3e9e5; color: var(--muted); cursor: not-allowed; }
+.empty-msg { color: var(--muted); }  /* "Loading menu..." and "No drinks" messages */
+
+/* ---------- Machine panel ---------- */
+/* White rounded box shared by the machine panel and the order list */
+.panel { background: var(--card); border: 1px solid var(--line); border-radius: 18px; padding: 1.25rem; }
+.machine .row { display: flex; align-items: center; gap: 1.25rem; }  /* glass on the left, texts on the right */
+.glass { width: 7.5rem; flex: none; }
+.glass .wall { fill: none; stroke: var(--ink); stroke-width: 3; stroke-linejoin: round; }  /* glass outline only */
+/* The liquid moves with transform (set by Function.js); the transition makes it rise smoothly */
+#liquid { fill: var(--liquid); transition: transform .3s linear; }
+.m-state { margin: 0; font: 600 1.1rem var(--display); }
+.m-pct { margin: .25rem 0 0; font: 700 2.5rem/1 var(--display); }  /* big progress number */
+.m-cup { margin: 1rem 0 0; color: var(--muted); font-size: .9rem; }
+.m-cup.bad { color: var(--err); font-weight: 600; }  /* "No cup detected yet" warning */
+
+/* ---------- Order list ---------- */
+/* Remove the default numbers and indentation of the <ol> */
+.orders { list-style: none; margin: 0; padding: 0; }
+/* Each order: name on the left, status on the right, time on a second line */
+.orders li { display: grid; grid-template-columns: 1fr auto; gap: .1rem .75rem; padding: .6rem 0; border-top: 1px solid var(--line); }
+.orders li:first-child { border-top: 0; }
+.orders time { grid-column: 1 / -1; color: var(--muted); font-size: .85rem; }  /* spans both columns */
+.tag { font-weight: 600; font-size: .9rem; }
+/* Status colors. Class names come from the order status in lowercase (IN_PREPARATION -> s-in_preparation) */
+.s-completed { color: var(--ok); } .s-in_preparation { color: var(--info); }
+.s-pending { color: var(--warn); } .s-error { color: var(--err); } .s-cancelled { color: var(--muted); }
+
+/* ---------- Toast (temporary message) ---------- */
+/* Fixed at the bottom center. Hidden by default: pushed down, transparent and not clickable */
+#toast { position: fixed; left: 50%; bottom: 1.5rem; transform: translate(-50%, 150%); max-width: 90vw;
+  padding: .75rem 1.25rem; border-radius: 10px; background: var(--ink); color: #fff; opacity: 0; pointer-events: none; transition: transform .25s, opacity .25s; }
+/* Function.js adds the class "show" for 4 seconds to slide it in */
+#toast.show { transform: translate(-50%, 0); opacity: 1; }
+
+/* ---------- Accessibility ---------- */
+/* Respects the system setting "reduce motion": turns off the animations above */
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
