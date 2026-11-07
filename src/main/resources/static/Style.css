@@ -71,7 +71,7 @@ aside { display: grid; gap: 1.5rem; }
   color: #fff; font: 600 1rem var(--text); cursor: pointer; }
 .prepare:hover:not(:disabled) { background: #0b4636; }  /* slightly darker on hover, only when enabled */
 .prepare:disabled { background: #e3e9e5; color: var(--muted); cursor: not-allowed; }
-.empty-msg { color: var(--muted); }  /* "Loading menu..." and "No drinks" messages */
+.empty-msg { color: var(--muted); }  /* "Carregando cardápio…" and "Nenhuma bebida" messages */
 
 /* ---------- Machine panel ---------- */
 /* White rounded box shared by the machine panel and the order list */
@@ -84,7 +84,7 @@ aside { display: grid; gap: 1.5rem; }
 .m-state { margin: 0; font: 600 1.1rem var(--display); }
 .m-pct { margin: .25rem 0 0; font: 700 2.5rem/1 var(--display); }  /* big progress number */
 .m-cup { margin: 1rem 0 0; color: var(--muted); font-size: .9rem; }
-.m-cup.bad { color: var(--err); font-weight: 600; }  /* "No cup detected yet" warning */
+.m-cup.bad { color: var(--err); font-weight: 600; }  /* "Copo não detectado" warning */
 
 /* ---------- Order list ---------- */
 /* Remove the default numbers and indentation of the <ol> */
@@ -108,3 +108,67 @@ aside { display: grid; gap: 1.5rem; }
 /* ---------- Accessibility ---------- */
 /* Respects the system setting "reduce motion": turns off the animations above */
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+
+/* ==========================================================================
+   Management screen (templates/Management.html). Reuses the tokens, .panel,
+   .pill, .tag and .s-* status colors defined above.
+   ========================================================================== */
+.sub { margin-left: .5rem; color: var(--muted); font: 500 1.1rem var(--display); }
+.top nav a { padding: .5rem .9rem; border: 1px solid var(--line); border-radius: 99px; background: var(--card);
+  color: var(--brand); font-weight: 600; text-decoration: none; }
+.mgmt-grid { display: grid; gap: 1.5rem; padding: 0 1.5rem 2rem; grid-template-columns: minmax(0, 1fr); }
+@media (min-width: 960px) { .mgmt-grid { grid-template-columns: 2fr 1fr; align-items: start; } .wide { grid-column: 1 / -1; } }
+
+/* Reservoir level bars: green above 50%, amber from 20% to 50%, red below 20% */
+.levels { display: grid; gap: 1rem; }
+.level-head { display: flex; justify-content: space-between; gap: 1rem; margin-bottom: .35rem; font-weight: 600; }
+.level-head span:last-child { color: var(--muted); font-size: .9rem; font-weight: 400; }
+.bar { height: .9rem; overflow: hidden; border-radius: 99px; background: var(--line); }
+.bar i { display: block; height: 100%; border-radius: 99px; background: var(--ok); transition: width .3s; }
+.bar.mid i { background: var(--warn); }
+.bar.low i { background: var(--err); }
+
+/* Forms and buttons */
+.form { display: grid; gap: .9rem; }
+.form label { display: grid; gap: .3rem; font-size: .9rem; font-weight: 600; }
+input, select { min-height: 2.75rem; padding: 0 .75rem; border: 1px solid var(--line); border-radius: 10px;
+  background: #fff; color: var(--ink); font: 400 1rem var(--text); }
+.btn { min-height: 2.75rem; padding: 0 1.1rem; border: 0; border-radius: 10px; background: var(--brand);
+  color: #fff; font: 600 .95rem var(--text); cursor: pointer; }
+.btn:hover { filter: brightness(.92); }
+.btn.ghost, .btn.danger { border: 1px solid var(--line); background: #fff; color: var(--brand); }
+.btn.danger { color: var(--err); }
+.actions { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; }
+
+/* Reports */
+.kpis { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem; margin-bottom: 1.25rem; }
+.kpi { padding: 1rem; border: 1px solid var(--line); border-radius: 14px; }
+.kpi b { display: block; font: 700 2.25rem/1 var(--display); }
+.kpi span { color: var(--muted); font-size: .9rem; }
+.charts { display: grid; gap: 1.5rem; }
+@media (min-width: 960px) { .charts { grid-template-columns: 1fr 1fr; } }
+.chart-box { position: relative; height: 16rem; }  /* Chart.js needs a box with a fixed height */
+
+/* Menu list and recipe form */
+.menu { margin: 0 0 1.5rem; padding: 0; list-style: none; }
+.drink-row { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 1rem; padding: .8rem 0; border-top: 1px solid var(--line); }
+.drink-row.off strong { color: var(--muted); }
+.muted { color: var(--muted); font-size: .9rem; }
+.badge { padding: .1rem .5rem; border: 1px solid var(--line); border-radius: 99px; font-size: .8rem; font-weight: 600; }
+.badge.on { color: var(--ok); } .badge.off { color: var(--muted); }
+.recipe { width: 100%; border-collapse: collapse; }
+.recipe th, .recipe td { padding: .4rem .5rem .4rem 0; font-size: .9rem; text-align: left; }
+.recipe input { width: 100%; }
+
+/* History table */
+.table-wrap { max-height: 28rem; overflow: auto; }
+.history { width: 100%; border-collapse: collapse; }
+.history th, .history td { padding: .55rem .75rem; border-top: 1px solid var(--line); text-align: left; white-space: nowrap; }
+.history thead th { position: sticky; top: 0; background: var(--card); }
+
+/* Extra fields for registering a new product (reservoir) inside the restock form */
+.new-product { display: grid; gap: .9rem; margin: 0; padding: .9rem; border: 1px solid var(--line); border-radius: 10px; }
+.new-product legend { padding: 0 .3rem; font-size: .9rem; font-weight: 600; }
+
+/* The hidden attribute must win over display rules such as .form label { display: grid } */
+[hidden] { display: none !important; }

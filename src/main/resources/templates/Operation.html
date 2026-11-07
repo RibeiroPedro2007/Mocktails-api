@@ -6,12 +6,12 @@
     The page is mostly empty containers. Function.js fills them with data from the API
     (drinks, orders) and keeps them updated in real time through WebSocket (STOMP).
 -->
-<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<html lang="pt-BR" xmlns:th="http://www.thymeleaf.org">
 <head>
     <meta charset="UTF-8">
     <!-- Makes the layout scale correctly on tablets and phones -->
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Mocktails · Operation</title>
+    <title>Mocktails · Operação</title>
 
     <!-- Google Fonts. Optional: if the fonts cannot load, the browser uses the system fonts from Style.css -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -30,7 +30,7 @@
     <header class="top">
         <h1>Mocktails</h1>
         <!-- Text and color (online/offline) are updated by renderMachine() in Function.js -->
-        <span id="conn" class="pill">Machine offline</span>
+        <span id="conn" class="pill">Máquina offline</span>
     </header>
 
     <!-- Two columns on wide screens (menu on the left, machine and orders on the right), one column on small screens -->
@@ -38,10 +38,10 @@
 
         <!-- Left column: drink menu -->
         <section aria-labelledby="menu-title">
-            <h2 id="menu-title">Menu</h2>
+            <h2 id="menu-title">Cardápio</h2>
             <!--
                 Empty on purpose. renderDrinks() creates one card per active drink, with:
-                the stock gauge, how many drinks the stock can make, and the "Prepare drink" button.
+                the stock gauge, how many drinks the stock can make, and the "Preparar bebida" button.
                 The button is disabled when the drink is out of stock, the machine is offline or busy.
             -->
             <div id="drinks" class="drinks"></div>
@@ -52,7 +52,7 @@
 
             <!-- Machine status: glass that fills with the progress, state text and cup sensor -->
             <section class="panel machine" aria-labelledby="machine-title">
-                <h2 id="machine-title">Machine</h2>
+                <h2 id="machine-title">Máquina</h2>
                 <div class="row">
                     <!--
                         The glass works as the progress bar (role="progressbar" for screen readers).
@@ -61,7 +61,7 @@
                         width="120" is a fallback size in case the CSS does not load.
                     -->
                     <svg id="glass" class="glass" width="120" viewBox="0 0 120 160" role="progressbar"
-                         aria-label="Drink progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+                         aria-label="Progresso da bebida" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
                         <defs>
                             <!-- Glass shape used as a mask, so the liquid never draws outside the glass -->
                             <clipPath id="cup"><path d="M14 8h92l-10 134a10 10 0 0 1-10 9H34a10 10 0 0 1-10-9z"/></clipPath>
@@ -72,19 +72,19 @@
                         <path class="wall" d="M14 8h92l-10 134a10 10 0 0 1-10 9H34a10 10 0 0 1-10-9z"/>
                     </svg>
                     <div>
-                        <!-- Current state: "Ready", "Preparing <drink>" or "Machine offline" -->
-                        <p id="m-state" class="m-state">Machine offline</p>
+                        <!-- Current state: "Pronta", "Preparando <drink>" or "Máquina offline" -->
+                        <p id="m-state" class="m-state">Máquina offline</p>
                         <!-- Progress of the current drink, from 0% to 100% -->
                         <p id="m-pct" class="m-pct">0%</p>
                     </div>
                 </div>
                 <!-- Cup sensor status. The sensor only runs while an order is in progress -->
-                <p id="m-cup" class="m-cup">Cup sensor: not reported</p>
+                <p id="m-cup" class="m-cup">Sensor de copo: sem informação</p>
             </section>
 
             <!-- Order queue -->
             <section class="panel" aria-labelledby="orders-title">
-                <h2 id="orders-title">Last 10 orders</h2>
+                <h2 id="orders-title">Últimos 10 pedidos</h2>
                 <!-- renderOrders() adds one item per order (newest first): id, drink, status and time -->
                 <ol id="orders" class="orders"></ol>
             </section>

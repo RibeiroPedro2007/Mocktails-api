@@ -1,35 +1,107 @@
 <!DOCTYPE html>
-<html lang="pt-br" xmlns:th="http://www.thymeleaf.org">
+<html lang="pt-BR" xmlns:th="http://www.thymeleaf.org">
 <head>
     <meta charset="UTF-8">
-    <title>Gerenciamento</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Mocktails · Gerenciamento</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@500;700&family=Instrument+Sans:wght@400;600&display=swap" rel="stylesheet">
+    <!-- href = preview path when opened as a file; th:href = server path when rendered by Spring -->
+    <link rel="stylesheet" href="../static/Style.css" th:href="@{/Style.css}">
 </head>
 <body>
+    <header class="top">
+        <h1>Mocktails <span class="sub">Gerenciamento</span></h1>
+        <nav><a href="/" th:href="@{/}">Operação</a></nav>
+    </header>
 
-    <h1>Nível dos Reservatórios:</h1>
-        <h2>1-Barras visuais (0% a 100%) mostrando a quantidade de líquido restante em cada reservatório (calculado pelo banco e validado pelo sensor de nível);
-            <br>
-        </h2>
-    <h1>Formulário de Reabastecimento:</h1>
-        <h2>1-Campo onde o gerente digita o volume em ml adicionado e clica em "Atualizar Estoque";
-            <br>
-        </h2>
-    <h1>Relatórios e Análise de Demanda (Gráficos via Chart.js):</h1>
-        <h2>1-Rank de Bebidas mais Vendidas: Gráfico de barras indicando os sucos com maior saída (ex: Suco de Limão em 1º lugar);<br>
-            2-Consumo de Insumos: Gráfico mostrando o gasto de cada matéria-prima ao longo do período para prever compras de frutas/sumos;<br>
-            3-Faturamento / Quantidade Total: Indicador numérico do total de copos servidos no dia, semana ou mês;
-            <br>
-        </h2>
-    <h1>Cadastro e Edição do Cardápio (CRUD):</h1>
-    <h2>1-Criar/Editar/Excluir Bebida: Formulário para cadastrar uma nova receita (definindo o nome e o tempo em milissegundos que cada mini bomba deve
-        ficar ligada e editando essas informações e Ativar/Desativar temporariamente a bebida);<br>
-        2-Ativar/Desativar Item: Opção de ocultar temporariamente uma bebida do cardápio da Tela de Operação;
-        <br>
-    </h2>
-    <h1>Histórico Geral</h1>
-    <h2>1-Tabela do Histórico Geral completa, registrando todas as transações salvas no MySQL (Ex: ID do Pedido, Data/Hora, Bebida, Tempo de Dosagem, Status);
-        <br>
-    </h2>
+    <main class="mgmt-grid">
+        <!-- 2.1 Reservoir levels -->
+        <section class="panel" aria-labelledby="levels-title">
+            <h2 id="levels-title">Nível dos reservatórios</h2>
+            <div id="levels" class="levels"></div>
+        </section>
 
+        <!-- 2.2 Restock form -->
+        <section class="panel" aria-labelledby="restock-title">
+            <h2 id="restock-title">Reabastecimento</h2>
+            <form id="restock" class="form">
+                <label>Reservatório <select id="rs-ingredient" required></select></label>
+                <!-- Only shown when "+ Novo produto…" is selected: creates a new reservoir for any kind of liquid -->
+                <fieldset id="rs-new" class="new-product" hidden>
+                    <legend>Novo produto</legend>
+                    <label>Nome do produto <input id="rs-name" maxlength="60" placeholder="Ex.: Suco de uva"></label>
+                    <label>Capacidade do reservatório (litros) <input id="rs-capacity" type="number" min="0.01" step="any"></label>
+                    <label>Pino da bomba <input id="rs-pin" type="number" min="0" step="1"></label>
+                    <span class="muted">O pino é o número da saída do ESP32 onde a bomba desse produto está ligada.</span>
+                </fieldset>
+                <label>Quantidade de garrafas <input id="rs-count" type="number" min="1" step="1" value="1" required></label>
+                <label>Tamanho da garrafa
+                    <select id="rs-size">
+                        <option value="0.5">0,5 litro</option>
+                        <option value="1">1 litro</option>
+                        <option value="1.5">1,5 litro</option>
+                        <option value="2" selected>2 litros</option>
+                        <option value="5">5 litros</option>
+                        <option value="other">Outro tamanho…</option>
+                    </select>
+                </label>
+                <!-- Only shown when "Outro tamanho…" is selected -->
+                <label id="rs-other-wrap" hidden>Tamanho em litros <input id="rs-other" type="number" min="0.01" step="any"></label>
+                <!-- Live summary: total to add and free space in the chosen reservoir (updated by Management.js) -->
+                <output id="rs-total" class="muted" for="rs-count rs-size rs-other"></output>
+                <button class="btn">Atualizar estoque</button>
+            </form>
+        </section>
+
+        <!-- 2.3 Reports and demand analysis -->
+        <section class="panel wide" aria-labelledby="reports-title">
+            <h2 id="reports-title">Relatórios</h2>
+            <div class="kpis">
+                <div class="kpi"><b id="kpi-day">0</b><span>copos servidos hoje</span></div>
+                <div class="kpi"><b id="kpi-week">0</b><span>copos nos últimos 7 dias</span></div>
+                <div class="kpi"><b id="kpi-month">0</b><span>copos nos últimos 30 dias</span></div>
+            </div>
+            <div class="charts">
+                <div><h3>Bebidas mais vendidas</h3><div class="chart-box"><canvas id="chart-rank"></canvas></div></div>
+                <div><h3>Consumo de insumos (ml por dia)</h3><div class="chart-box"><canvas id="chart-use"></canvas></div></div>
+            </div>
+        </section>
+
+        <!-- 2.4 Menu management (CRUD) -->
+        <section class="panel wide" aria-labelledby="menu-title">
+            <h2 id="menu-title">Cardápio</h2>
+            <ul id="menu" class="menu"></ul>
+            <form id="drink-form" class="form" novalidate>
+                <h3 id="drink-form-title">Nova bebida</h3>
+                <label>Nome <input id="d-name" maxlength="80" required></label>
+                <table class="recipe">
+                    <thead><tr><th>Insumo</th><th>Quantidade (ml)</th><th>Tempo da bomba (ms)</th></tr></thead>
+                    <tbody id="recipe-rows"></tbody>
+                </table>
+                <div class="actions">
+                    <button class="btn" id="d-submit">Cadastrar bebida</button>
+                    <button type="button" class="btn ghost" id="d-cancel" hidden>Cancelar edição</button>
+                </div>
+            </form>
+        </section>
+
+        <!-- 2.5 Full order history -->
+        <section class="panel wide" aria-labelledby="history-title">
+            <h2 id="history-title">Histórico de pedidos</h2>
+            <div class="table-wrap">
+                <table class="history">
+                    <thead><tr><th>Pedido</th><th>Data e hora</th><th>Bebida</th><th>Tempo de dosagem</th><th>Status</th></tr></thead>
+                    <tbody id="history"></tbody>
+                </table>
+            </div>
+        </section>
+    </main>
+
+    <div id="toast" role="status" aria-live="polite"></div>
+
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+    <script src="../static/Management.js" th:src="@{/Management.js}"></script>
 </body>
 </html>
