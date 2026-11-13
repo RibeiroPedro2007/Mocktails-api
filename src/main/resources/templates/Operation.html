@@ -23,88 +23,146 @@
         href    = relative path, used when the file is opened directly in the browser (preview only).
         th:href = Thymeleaf replaces href with the server path (/Style.css) when Spring renders the page.
     -->
-    <link rel="stylesheet" href="../static/Style.css" th:href="@{/Style.css}">
+    <link rel="stylesheet" href="../static/Style.css" th:href="@{/Style.css(v=2)}">
 </head>
 <body>
-    <!-- Top bar: app name and machine connection badge -->
-    <header class="top">
-        <h1>Mocktails</h1>
-        <!-- Text and color (online/offline) are updated by renderMachine() in Function.js -->
-        <span id="conn" class="pill">Máquina offline</span>
-    </header>
+<!-- Top bar: app name, saldo, add credit button and machine connection badge -->
+<header class="top">
+    <h1>Mocktails</h1>
 
-    <!-- Two columns on wide screens (menu on the left, machine and orders on the right), one column on small screens -->
-    <main class="layout">
+    <div style="display: flex; align-items: center; gap: 12px; margin-left: auto; margin-right: 20px;">
+        <button type="button" class="btn-credito" onclick="abrirModalPagamento()">+ Adicionar Crédito</button>
+        <div class="saldo-container" style="margin: 0; padding: 6px 14px;">
+            <span>Saldo: <strong>R$ <span id="saldo-atual">0.00</span></strong></span>
+        </div>
+    </div>
 
-        <!-- Left column: drink menu -->
-        <section aria-labelledby="menu-title">
-            <h2 id="menu-title">Cardápio</h2>
-            <!--
-                Empty on purpose. renderDrinks() creates one card per active drink, with:
-                the stock gauge, how many drinks the stock can make, and the "Preparar bebida" button.
-                The button is disabled when the drink is out of stock, the machine is offline or busy.
-            -->
-            <div id="drinks" class="drinks"></div>
+    <!-- Text and color (online/offline) are updated by renderMachine() in Function.js -->
+    <span id="conn" class="pill">Máquina offline</span>
+</header>
+
+<!-- Two columns on wide screens (menu on the left, machine and orders on the right), one column on small screens -->
+<main class="layout">
+
+    <!-- Left column: drink menu -->
+    <section aria-labelledby="menu-title">
+        <h2 id="menu-title">Cardápio</h2>
+        <!--
+            Empty on purpose. renderDrinks() creates one card per active drink, with:
+            the stock gauge, how many drinks the stock can make, and the "Preparar bebida" button.
+            The button is disabled when the drink is out of stock, the machine is offline or busy.
+        -->
+        <div id="drinks" class="drinks"></div>
+    </section>
+
+    <!-- Right column: machine status and order queue -->
+    <aside>
+
+        <!-- Machine status: glass that fills with the progress, state text and cup sensor -->
+        <section class="panel machine" aria-labelledby="machine-title">
+            <h2 id="machine-title">Máquina</h2>
+            <div class="row">
+                <!--
+                    The glass works as the progress bar (role="progressbar" for screen readers).
+                    aria-valuenow is updated by renderMachine().
+                    viewBox sets an internal drawing area of 120 x 160 units that scales with the width.
+                    width="120" is a fallback size in case the CSS does not load.
+                -->
+                <svg id="glass" class="glass" width="120" viewBox="0 0 120 160" role="progressbar"
+                     aria-label="Progresso da bebida" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+                    <defs>
+                        <!-- Glass shape used as a mask, so the liquid never draws outside the glass -->
+                        <clipPath id="cup"><path d="M14 8h92l-10 134a10 10 0 0 1-10 9H34a10 10 0 0 1-10-9z"/></clipPath>
+                    </defs>
+                    <!-- The liquid is a rectangle moved up or down with a CSS transform (translateY) to show the progress -->
+                    <g clip-path="url(#cup)"><rect id="liquid" x="0" y="8" width="120" height="143"/></g>
+                    <!-- Glass outline, same shape as the mask, drawn on top of the liquid -->
+                    <path class="wall" d="M14 8h92l-10 134a10 10 0 0 1-10 9H34a10 10 0 0 1-10-9z"/>
+                </svg>
+                <div>
+                    <!-- Current state: "Pronta", "Preparando <drink>" or "Máquina offline" -->
+                    <p id="m-state" class="m-state">Máquina offline</p>
+                    <!-- Progress of the current drink, from 0% to 100% -->
+                    <p id="m-pct" class="m-pct">0%</p>
+                </div>
+            </div>
+            <!-- Cup sensor status. The sensor only runs while an order is in progress -->
+            <p id="m-cup" class="m-cup">Sensor de copo: sem informação</p>
         </section>
 
-        <!-- Right column: machine status and order queue -->
-        <aside>
+        <!-- Order queue -->
+        <section class="panel" aria-labelledby="orders-title">
+            <h2 id="orders-title">Últimos 10 pedidos</h2>
+            <!-- renderOrders() adds one item per order (newest first): id, drink, status and time -->
+            <ol id="orders" class="orders"></ol>
+        </section>
+    </aside>
+</main>
 
-            <!-- Machine status: glass that fills with the progress, state text and cup sensor -->
-            <section class="panel machine" aria-labelledby="machine-title">
-                <h2 id="machine-title">Máquina</h2>
-                <div class="row">
-                    <!--
-                        The glass works as the progress bar (role="progressbar" for screen readers).
-                        aria-valuenow is updated by renderMachine().
-                        viewBox sets an internal drawing area of 120 x 160 units that scales with the width.
-                        width="120" is a fallback size in case the CSS does not load.
-                    -->
-                    <svg id="glass" class="glass" width="120" viewBox="0 0 120 160" role="progressbar"
-                         aria-label="Progresso da bebida" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
-                        <defs>
-                            <!-- Glass shape used as a mask, so the liquid never draws outside the glass -->
-                            <clipPath id="cup"><path d="M14 8h92l-10 134a10 10 0 0 1-10 9H34a10 10 0 0 1-10-9z"/></clipPath>
-                        </defs>
-                        <!-- The liquid is a rectangle moved up or down with a CSS transform (translateY) to show the progress -->
-                        <g clip-path="url(#cup)"><rect id="liquid" x="0" y="8" width="120" height="143"/></g>
-                        <!-- Glass outline, same shape as the mask, drawn on top of the liquid -->
-                        <path class="wall" d="M14 8h92l-10 134a10 10 0 0 1-10 9H34a10 10 0 0 1-10-9z"/>
-                    </svg>
-                    <div>
-                        <!-- Current state: "Pronta", "Preparando <drink>" or "Máquina offline" -->
-                        <p id="m-state" class="m-state">Máquina offline</p>
-                        <!-- Progress of the current drink, from 0% to 100% -->
-                        <p id="m-pct" class="m-pct">0%</p>
-                    </div>
+<!--
+    Small message box, hidden until needed. toast() in Function.js shows error messages here
+    (server unreachable, order refused). aria-live="polite" makes screen readers announce the text.
+-->
+<div id="toast" role="status" aria-live="polite"></div>
+
+<!-- Modal de Pagamento Fake -->
+<div id="modal-pagamento" class="modal-overlay" style="display: none;">
+    <div class="modal-content">
+        <span class="btn-fechar" onclick="fecharModalPagamento()">&times;</span>
+
+        <!-- ETAPA 1: Escolha do Valor e Método -->
+        <div id="etapa-selecao">
+            <h3>Adicionar Crédito</h3>
+
+            <label for="input-valor" style="display: block; margin: 10px 0 5px; text-align: left; font-weight: 600;">Digite o valor (R$):</label>
+            <input type="number" id="input-valor" placeholder="10.00" min="1" step="0.50" style="width: 100%; text-align: center; font-size: 1.1rem;">
+
+            <div class="opcoes-pagamento" style="margin-top: 15px;">
+                <button type="button" onclick="iniciarPagamento('PIX')">⚡ Pagar via Pix</button>
+                <button type="button" onclick="iniciarPagamento('CARTAO')">💳 Pagar no Cartão</button>
+            </div>
+        </div>
+
+        <!-- ETAPA 2: Processamento Fake -->
+        <div id="etapa-processando" style="display: none;">
+            <!-- Conteúdo do PIX -->
+            <div id="visao-pix" style="display: none;">
+                <h3>Escaneie o QR Code Pix</h3>
+                <!-- Gerador de QR Code fake via API pública -->
+                <img id="img-qrcode" src="" alt="QR Code Pix" width="180" style="margin: 10px 0;">
+                <p>Aguardando confirmação do pagamento...</p>
+                <div class="spinner"></div>
+            </div>
+
+            <!-- Conteúdo do Cartão -->
+            <div id="visao-cartao" style="display: none;">
+                <h3>Aproxime ou Insira o Cartão</h3>
+                <div class="maquininha-animacao" style="margin: 15px 0;">
+                    <div class="cartao-passando" style="font-size: 40px;">💳</div>
+                    <p id="status-maquininha" style="margin-top: 8px;">Processando transação...</p>
                 </div>
-                <!-- Cup sensor status. The sensor only runs while an order is in progress -->
-                <p id="m-cup" class="m-cup">Sensor de copo: sem informação</p>
-            </section>
+                <div class="spinner"></div>
+            </div>
+        </div>
 
-            <!-- Order queue -->
-            <section class="panel" aria-labelledby="orders-title">
-                <h2 id="orders-title">Últimos 10 pedidos</h2>
-                <!-- renderOrders() adds one item per order (newest first): id, drink, status and time -->
-                <ol id="orders" class="orders"></ol>
-            </section>
-        </aside>
-    </main>
+        <!-- ETAPA 3: Sucesso -->
+        <div id="etapa-sucesso" style="display: none;">
+            <span class="icone-sucesso">✅</span>
+            <h3>Pagamento Aprovado!</h3>
+            <p>R$ <span id="valor-confirmado">0.00</span> adicionados com sucesso.</p>
+        </div>
+    </div>
+</div>
 
-    <!--
-        Small message box, hidden until needed. toast() in Function.js shows error messages here
-        (server unreachable, order refused). aria-live="polite" makes screen readers announce the text.
-    -->
-    <div id="toast" role="status" aria-live="polite"></div>
-
-    <!--
-        Scripts go at the end of the body so the elements above already exist when they run.
-        SockJS and the STOMP client (loaded from a CDN) are used to connect to /ws-mocktails.
-        They must come before Function.js, which uses their global objects (SockJS and StompJs).
-    -->
-    <script src="https://cdn.jsdelivr.net/npm/sockjs-client@1.6.1/dist/sockjs.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@stomp/stompjs@7.0.0/bundles/stomp.umd.min.js"></script>
-    <!-- Screen logic. Same idea as the stylesheet: src for preview, th:src when rendered by Spring -->
-    <script src="../static/Function.js" th:src="@{/Function.js}"></script>
+<!--
+    Scripts go at the end of the body so the elements above already exist when they run.
+    SockJS and the STOMP client (loaded from a CDN) are used to connect to /ws-mocktails.
+    They must come before Function.js, which uses their global objects (SockJS and StompJs).
+-->
+<script src="https://cdn.jsdelivr.net/npm/sockjs-client@1.6.1/dist/sockjs.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@stomp/stompjs@7.0.0/bundles/stomp.umd.min.js"></script>
+<!-- Screen logic. Same idea as the stylesheet: src for preview, th:src when rendered by Spring -->
+<!-- Screen logic com parâmetro ?v=2 para forçar o navegador a atualizar o cache -->
+<script src="../static/Function.js" th:src="@{/Function.js(v=2)}"></script>
 </body>
 </html>
