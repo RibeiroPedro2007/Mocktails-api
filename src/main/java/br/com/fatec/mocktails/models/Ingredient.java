@@ -14,7 +14,11 @@ public class Ingredient {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
-
+    
+    private String pump;   // "A" ou "B"
+    public String getPump() { return pump; }
+    public void setPump(String pump) { this.pump = pump; }
+    
     @Column(nullable = false)
     private String name;
 

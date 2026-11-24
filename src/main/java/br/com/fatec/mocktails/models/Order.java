@@ -26,4 +26,11 @@ public class Order {
 
     @Column(nullable = false)
     private String status; //"COMPLETED", "IN_PREPARATION", "ERROR"
+    
+    
+    private Integer copos = 1;
+
+    public Integer getCopos() { return copos; }
+    public void setCopos(Integer copos) { this.copos = copos; }
+
 }
