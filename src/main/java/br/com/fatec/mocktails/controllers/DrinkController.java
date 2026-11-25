@@ -17,8 +17,9 @@ public class DrinkController {
     private DrinkService drinkService;
 
     @GetMapping
-    public ResponseEntity<List<Drink>> getAllActiveDrinks() {
-        List<Drink> drinks = drinkService.findAllActive();
+    public ResponseEntity<List<Drink>> getAllDrinks(
+            @RequestParam(defaultValue = "false") boolean all) {
+        List<Drink> drinks = drinkService.findAll(all);
         return ResponseEntity.ok(drinks);
     }
 
@@ -32,6 +33,12 @@ public class DrinkController {
     public ResponseEntity<Drink> createDrink(@RequestBody DrinkRequestDTO dto) {
         Drink savedDrink = drinkService.create(dto);
         return ResponseEntity.status(201).body(savedDrink);
+    }
+
+    @PutMapping("/{id}")
+    public ResponseEntity<Drink> updateDrink(@PathVariable Long id, @RequestBody DrinkRequestDTO dto) {
+        Drink updatedDrink = drinkService.update(id, dto);
+        return ResponseEntity.ok(updatedDrink);
     }
 
     // Rota para alternar o status active (ex: /api/drinks/1/status?active=false)

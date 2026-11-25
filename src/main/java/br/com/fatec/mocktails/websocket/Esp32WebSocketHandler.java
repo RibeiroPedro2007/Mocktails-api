@@ -1,6 +1,7 @@
 package br.com.fatec.mocktails.websocket;
 
 import br.com.fatec.mocktails.models.Order;
+import br.com.fatec.mocktails.repositories.OrderRepository;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
@@ -9,6 +10,7 @@ import org.springframework.web.socket.TextMessage;
 import org.springframework.web.socket.WebSocketSession;
 import org.springframework.web.socket.handler.TextWebSocketHandler;
 
+import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 
 import java.io.IOException;
@@ -28,6 +30,9 @@ public class Esp32WebSocketHandler extends TextWebSocketHandler {
 
     @Autowired
     private OrderWebSocketPublisher orderWebSocketPublisher;
+
+    @Autowired
+    private OrderRepository orderRepository;
 
 
     // =====================================================
@@ -119,7 +124,7 @@ public class Esp32WebSocketHandler extends TextWebSocketHandler {
 
             System.out.println(
                     "ERRO AO ENVIAR PEDIDO AO ESP32: "
-                    + e.getMessage()
+                            + e.getMessage()
             );
             e.printStackTrace();
 
@@ -175,19 +180,14 @@ public class Esp32WebSocketHandler extends TextWebSocketHandler {
 
             System.out.println(
                     "ERRO AO ENVIAR COMANDO AO ESP32: "
-                    + e.getMessage()
+                            + e.getMessage()
             );
             e.printStackTrace();
 
             return false;
         }
     }
-
-
-    // =====================================================
     // RECEBER MENSAGENS DO ESP32
-    // =====================================================
-
     @Override
     protected void handleTextMessage(
             WebSocketSession session,
@@ -200,15 +200,60 @@ public class Esp32WebSocketHandler extends TextWebSocketHandler {
         System.out.println(dadosRecebidos);
         System.out.println("================================");
 
-        // Encaminha a mensagem para a interface web
+        // Atualiza o status do pedido no banco e avisa /topic/orders
+        atualizarStatusPedido(dadosRecebidos);
+
+        // Encaminha a mensagem para a interface web (/topic/esp/status)
         orderWebSocketPublisher.notifyEspStatus(dadosRecebidos);
     }
 
 
-    // =====================================================
-    // ESP32 DESCONECTOU
-    // =====================================================
+    // ATUALIZAR STATUS DO PEDIDO A PARTIR DO ESTADO DO ESP32
+    private void atualizarStatusPedido(String payloadJson) {
 
+        try {
+            JsonNode json = objectMapper.readTree(payloadJson);
+
+            if (!json.hasNonNull("pedidoId") || !json.hasNonNull("estado")) {
+                return;
+            }
+            Long pedidoId = json.get("pedidoId").asLong();
+            String estadoEsp = json.get("estado").asText();
+
+            String novoStatus = mapearEstadoParaStatus(estadoEsp);
+            if (novoStatus == null) {
+                return;
+            }
+            orderRepository.findById(pedidoId).ifPresent(order -> {
+
+                if (!novoStatus.equals(order.getStatus())
+                        && !"CANCELLED".equals(order.getStatus())) {
+
+                    order.setStatus(novoStatus);
+                    Order pedidoAtualizado = orderRepository.save(order);
+                    orderWebSocketPublisher.notifyOrderUpdate(pedidoAtualizado);
+                }
+            });
+
+        } catch (Exception e) {
+            System.out.println(
+                    "ERRO AO ATUALIZAR PEDIDO VIA ESP32: "
+                            + e.getMessage()
+            );
+        }
+    }
+    private String mapearEstadoParaStatus(String estadoEsp) {
+
+        return switch (estadoEsp) {
+            case "PROCURANDO", "ENCHENDO" -> "PREPARING";
+            case "ERRO_COPOS" -> "NEED_CUPS";
+            case "CONCLUIDO" -> "COMPLETED";
+            case "ERRO" -> "ERROR";
+            default -> null;
+        };
+    }
+
+    // ESP32 DESCONECTOU
     @Override
     public void afterConnectionClosed(
             WebSocketSession session,
@@ -226,45 +271,31 @@ public class Esp32WebSocketHandler extends TextWebSocketHandler {
             );
         }
     }
-
-
-    // =====================================================
     // TRATAR ERROS
-    // =====================================================
-
     @Override
     public void handleTransportError(
             WebSocketSession session,
             Throwable exception) throws Exception {
-
         System.out.println(
                 "ERRO NA CONEXÃO ESP32: "
-                + exception.getMessage()
+                        + exception.getMessage()
         );
-
         sessions.remove(session);
-
         if (session.isOpen()) {
             session.close();
         }
-
         if (sessions.isEmpty()) {
-
             orderWebSocketPublisher.notifyEspStatus(
                     "{\"status\":\"OFFLINE\"}"
             );
         }
     }
-
-
     // =====================================================
     // MÉTODO ANTIGO - MANTIDO PARA COMPATIBILIDADE
     // =====================================================
-
     public void sendOrderToEsp32(Order order) {
 
         try {
-
             Map<String, Object> mensagem = new LinkedHashMap<>();
 
             mensagem.put("pedidoId", order.getId());
@@ -283,7 +314,6 @@ public class Esp32WebSocketHandler extends TextWebSocketHandler {
             }
 
         } catch (IOException e) {
-
             System.out.println(
                     "Erro ao enviar pedido: " + e.getMessage()
             );

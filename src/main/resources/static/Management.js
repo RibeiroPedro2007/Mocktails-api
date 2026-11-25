@@ -63,7 +63,7 @@ function renderIngredientInputs() {
   const select = $('rs-ingredient');
   const previous = select.value;
   select.innerHTML = state.ingredients.map((i) => `<option value="${i.id}">${esc(i.name)}</option>`).join('')
-    + '<option value="new">+ Novo produto…</option>';
+      + '<option value="new">+ Novo produto…</option>';
   if ([...select.options].some((o) => o.value === previous)) select.value = previous;
   fillRecipeRows();
 }
@@ -72,8 +72,8 @@ function fillRecipeRows(recipes = []) {
   const byId = Object.fromEntries(recipes.map((r) => [r.ingredient?.id, r]));
   $('recipe-rows').innerHTML = state.ingredients.map((i) => `<tr>
     <td>${esc(i.name)}</td>
-    <td><input type="number" min="0" step="1" data-ing="${i.id}" data-f="ml" aria-label="${esc(i.name)}: quantidade (ml)" value="${byId[i.id] ? num(byId[i.id].quantityMl) : ''}"></td>
-    <td><input type="number" min="0" step="1" data-ing="${i.id}" data-f="ms" aria-label="${esc(i.name)}: tempo da bomba (ms)" value="${byId[i.id] ? num(byId[i.id].dosageTimeMs) : ''}"></td>
+    <td><input type="number" min="1" step="1" data-ing="${i.id}" data-f="ml" aria-label="${esc(i.name)}: quantidade (ml)" value="${byId[i.id] ? num(byId[i.id].QuantityMl ?? byId[i.id].quantityMl) : ''}"></td>
+    <td><input type="number" min="1" step="1" data-ing="${i.id}" data-f="ms" aria-label="${esc(i.name)}: tempo da bomba (ms)" value="${byId[i.id] ? num(byId[i.id].dosageTimeMs) : ''}"></td>
   </tr>`).join('');
 }
 
@@ -113,7 +113,7 @@ function renderReports() {
     if (idx < 0) return;
     (o.drink?.recipes ?? []).forEach((r) => {
       const name = r.ingredient?.name;
-      if (name) (use[name] ??= Array(14).fill(0))[idx] += num(r.quantityMl);
+      if (name) (use[name] ??= Array(14).fill(0))[idx] += num(r.QuantityMl ?? r.quantityMl);
     });
   });
   draw('use', {
@@ -130,7 +130,7 @@ function renderReports() {
 function renderMenu() {
   $('menu').innerHTML = state.drinks.length ? state.drinks.map((d) => {
     const off = d.active === false;
-    const recipe = (d.recipes ?? []).map((r) => `${esc(r.ingredient?.name ?? '?')} ${num(r.quantityMl)} ml, ${num(r.dosageTimeMs)} ms`).join(' | ');
+    const recipe = (d.recipes ?? []).map((r) => `${esc(r.ingredient?.name ?? '?')} ${num(r.QuantityMl ?? r.quantityMl)} ml, ${num(r.dosageTimeMs)} ms`).join(' | ');
     return `<li class="drink-row${off ? ' off' : ''}">
       <div><strong>${esc(d.name)}</strong> <span class="badge ${off ? 'off' : 'on'}">${off ? 'Oculta' : 'No cardápio'}</span><div class="muted">${recipe}</div></div>
       <div class="actions" data-id="${d.id}">
@@ -208,8 +208,8 @@ async function createProduct(addedMl) {
   if (used) return toast(`O pino ${pin} já é usado por ${used.name}. Escolha outro pino.`);
   const filled = Math.min(addedMl, capacityMl);
   const msg = filled < addedMl
-    ? `${name} cadastrado e cheio (${fmtVolume(capacityMl)}). O excedente de ${fmtVolume(addedMl - filled)} não foi adicionado.`
-    : `${name} cadastrado com ${fmtVolume(filled)}.`;
+      ? `${name} cadastrado e cheio (${fmtVolume(capacityMl)}). O excedente de ${fmtVolume(addedMl - filled)} não foi adicionado.`
+      : `${name} cadastrado com ${fmtVolume(filled)}.`;
   const body = { name, currentQuantityMl: filled, maxCapacityMl: capacityMl, pumpPin: pin };
   if (await run(() => http(API.ingredients, 'POST', body), msg)) {
     const created = state.ingredients.find((i) => norm(i.name) === norm(name));
@@ -231,8 +231,8 @@ $('restock').addEventListener('submit', async (e) => {
   const total = num(ing.currentQuantityMl) + added;
   const next = max ? Math.min(total, max) : total;
   const msg = next < total
-    ? `${ing.name} está cheio (${fmtVolume(max)}). O excedente de ${fmtVolume(total - next)} não foi adicionado.`
-    : `${ing.name}: +${fmtVolume(added)}. Agora tem ${fmtVolume(next)}.`;
+      ? `${ing.name} está cheio (${fmtVolume(max)}). O excedente de ${fmtVolume(total - next)} não foi adicionado.`
+      : `${ing.name}: +${fmtVolume(added)}. Agora tem ${fmtVolume(next)}.`;
   if (await run(() => http(`${API.ingredients}/${ing.id}/stock`, 'PATCH', { currentQuantityMl: next }), msg)) {
     $('rs-count').value = 1; // keep the bottle size, reset the count
     updateRestockSummary();
@@ -256,16 +256,16 @@ $('drink-form').addEventListener('submit', async (e) => {
   const field = (id, f) => num(document.querySelector(`[data-ing="${id}"][data-f="${f}"]`).value);
   const name = $('d-name').value.trim();
   const recipes = state.ingredients
-    .map((i) => ({ ingredientId: i.id, quantityMl: field(i.id, 'ml'), dosageTimeMs: field(i.id, 'ms') }))
-    .filter((r) => r.quantityMl > 0);
+      .map((i) => ({ ingredientId: i.id, quantityMl: field(i.id, 'ml'), dosageTimeMs: field(i.id, 'ms') }))
+      .filter((r) => r.quantityMl > 0);
   if (!name) return toast('Dê um nome à bebida.');
   if (!recipes.length) return toast('Informe a quantidade de pelo menos um insumo.');
   if (recipes.some((r) => r.dosageTimeMs <= 0)) return toast('Todo insumo usado precisa de um tempo de bomba em ms.');
   const editing = state.drinks.find((d) => d.id === state.editingId);
   const body = { name, active: editing ? editing.active !== false : true, recipes };
   const ok = await run(
-    () => (editing ? http(`${API.drinks}/${editing.id}`, 'PUT', body) : http(API.drinks, 'POST', body)),
-    editing ? 'Bebida atualizada.' : 'Bebida cadastrada.',
+      () => (editing ? http(`${API.drinks}/${editing.id}`, 'PUT', body) : http(API.drinks, 'POST', body)),
+      editing ? 'Bebida atualizada.' : 'Bebida cadastrada.',
   );
   if (ok) resetDrinkForm();
 });
@@ -334,3 +334,5 @@ async function mockApi(url, method, body) {
 
 load();
 if (!MOCK) setInterval(load, 15000); // keeps levels, reports and history fresh
+
+// se der b.o na hora de criar a bebida ver o min="1"

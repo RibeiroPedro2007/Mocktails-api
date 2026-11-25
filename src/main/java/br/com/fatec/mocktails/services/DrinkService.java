@@ -24,6 +24,13 @@ public class DrinkService {
         return drinkRepository.findByActiveTrue();
     }
 
+    public List<Drink> findAll(boolean all) {
+        if (all) {
+            return drinkRepository.findAll();
+        }
+        return drinkRepository.findByActiveTrue();
+    }
+
     public Drink findById(Long id) {
         return drinkRepository.findById(id)
                 .orElseThrow(() -> new RuntimeException("Drink not found with id: " + id));
@@ -34,6 +41,34 @@ public class DrinkService {
         Drink drink = new Drink();
         drink.setName(dto.getName());
         drink.setActive(dto.getActive() != null ? dto.getActive() : true);
+
+        if (dto.getRecipes() != null) {
+            for (RecipeRequestDTO item : dto.getRecipes()) {
+                Ingredient ingredient = ingredientRepository.findById(item.getIngredientId())
+                        .orElseThrow(() -> new RuntimeException("Ingredient not found with id: " + item.getIngredientId()));
+
+                Recipe recipe = new Recipe();
+                recipe.setDrink(drink);
+                recipe.setIngredient(ingredient);
+                recipe.setQuantityMl(item.getQuantityMl());
+                recipe.setDosageTimeMs(item.getDosageTimeMs());
+
+                drink.getRecipes().add(recipe);
+            }
+        }
+
+        return drinkRepository.save(drink);
+    }
+
+    @Transactional
+    public Drink update(Long id, DrinkRequestDTO dto) {
+        Drink drink = findById(id);
+        drink.setName(dto.getName());
+        if (dto.getActive() != null) {
+            drink.setActive(dto.getActive());
+        }
+
+        drink.getRecipes().clear();
 
         if (dto.getRecipes() != null) {
             for (RecipeRequestDTO item : dto.getRecipes()) {

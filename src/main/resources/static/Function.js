@@ -19,17 +19,25 @@ const REQUIRE_MACHINE = true; // set to false while the ESP32 does not report it
 
 // Every endpoint and topic in one place: if the back end changes, only edit here.
 const API = {
-  drinks: '/api/drinks',            // GET  -> active drinks with recipes and ingredient stock
-  orders: '/api/orders',            // GET  -> all orders | POST { drinkId } -> new order
-  socket: '/ws-mocktails',          // STOMP over SockJS (StompWebSocketConfig)
-  topicOrders: '/topic/orders',     // Order objects (OrderWebSocketPublisher)
-  topicMachine: '/topic/machine',   // { connected, cupPresent, progress, orderId } (to be published)
-                                    // cupPresent is null while idle: the sensor only runs during an order
+  drinks: '/api/drinks',
+  orders: '/api/orders',
+  socket: '/ws-mocktails',
+  topicOrders: '/topic/orders',
+  topicMachine: '/topic/esp/status', // Real rote of OrderWebSocketPublisher
 };
-// Text shown for each order status sent by the back end.
-const STATUS = { PENDING: 'Na fila', IN_PREPARATION: 'Em preparo', COMPLETED: 'Concluído', ERROR: 'Erro', CANCELLED: 'Cancelado' };
-// Statuses that mean "the machine is working on it or is about to".
-const ACTIVE = ['PENDING', 'IN_PREPARATION'];
+
+// add PREPARING and NEED_CUPS to stay the same my Backend
+const STATUS = {
+  PENDING: 'Na fila',
+  PREPARING: 'Em preparo',
+  IN_PREPARATION: 'Em preparo',
+  COMPLETED: 'Concluído',
+  NEED_CUPS: 'Faltam copos',
+  ERROR: 'Erro',
+  CANCELLED: 'Cancelado'
+};
+
+const ACTIVE = ['PENDING', 'PREPARING', 'IN_PREPARATION', 'NEED_CUPS'];
 const MAX_GAUGE = 20; // servings that fill a stock gauge completely
 const GLASS_H = 143;  // liquid height inside the glass, in SVG units
 
@@ -62,8 +70,8 @@ const busy = () => state.orders.some((o) => ACTIVE.includes(o.status));
 // How many drinks the current stock can make: the scarcest ingredient decides.
 // Example: 600 ml of lime / 60 ml per drink = 10, but 100 ml of soda / 140 ml = 0, so the result is 0.
 const servings = (d) => (d.recipes?.length
-  ? Math.min(...d.recipes.map((r) => Math.floor(r.ingredient.currentQuantityMl / r.quantityMl)))
-  : 0);
+    ? Math.min(...d.recipes.map((r) => Math.floor(r.ingredient.currentQuantityMl / (r.QuantityMl ?? r.quantityMl))))
+    : 0);
 
 // LocalDateTime arrives as an ISO string or, depending on Jackson settings, as [y, m, d, h, min, s].
 // Months in JavaScript start at 0, hence the "- 1".
@@ -171,10 +179,14 @@ const upsertOrder = (o) => setOrders([o, ...state.orders.filter((x) => x.id !== 
 function onOrder(o) {
   const m = state.machine;
   upsertOrder(o);
-  if (o.status === 'IN_PREPARATION') { m.orderId = o.id; m.progress = 0; } // a new drink started: empty glass
+  if (o.status === 'IN_PREPARATION' || o.status === 'PREPARING') {
+    m.orderId = o.id;
+    m.progress = 0;
+  }// a new drink started: empty glass
   else if (!ACTIVE.includes(o.status) && o.id === m.orderId) {
     // The current order ended: completed fills the glass, any other ending empties it.
     m.progress = o.status === 'COMPLETED' ? 100 : 0;
+    if (!ACTIVE.includes(o.status)) m.cupPresent = null;
     // Keep the full glass visible for 2 seconds, then reset it if no other order started.
     setTimeout(() => { if (!busy()) { m.progress = 0; renderMachine(); } }, 2000);
   }
@@ -185,12 +197,50 @@ function onOrder(o) {
 // /topic/machine: { connected, cupPresent, progress, orderId }.
 function onMachine(msg) {
   const m = state.machine;
-  const cup = msg.cupPresent ?? null; // missing value means "sensor not reporting"
-  const changed = m.connected !== !!msg.connected; // only this affects the drink buttons
-  m.connected = !!msg.connected;
-  m.cupPresent = cup;
-  if (msg.progress != null) { m.progress = msg.progress; m.orderId = msg.orderId ?? m.orderId; }
-  changed ? render() : renderMachine(); // progress is high frequency: avoid rebuilding the grid
+  let changed = false;
+
+  // 1. Connection (send by Esp32WebSocketHandler to the connect/disconnect)
+  if (msg.status === 'ONLINE' || msg.status === 'OFFLINE') {
+    const isOnline = msg.status === 'ONLINE';
+    changed = m.connected !== isOnline;
+    m.connected = isOnline;
+    if (!isOnline) {
+      m.cupPresent = null;
+      m.progress = 0;
+    }
+  }
+
+  // 2. Events sends by ESP32 during the order
+  if (msg.estado) {
+    // Se recebeu evento do ESP32, ele está obviamente online
+    if (!m.connected) { m.connected = true; changed = true; }
+    if (msg.pedidoId) m.orderId = msg.pedidoId;
+
+    switch (msg.estado) {
+      case 'PROCURANDO':
+        m.cupPresent = null; // "Search cup"
+        m.progress = 15;
+        break;
+      case 'ENCHENDO':
+        m.cupPresent = true; // "Cup detected"
+        m.progress = 65;
+        break;
+      case 'ERRO_COPOS':
+        m.cupPresent = false; // Stay red: "Cup don't detected"
+        toast(`Faltam ${(msg.pedidos || 1) - (msg.atendidos || 0)} copo(s)!`);
+        break;
+      case 'CONCLUIDO': {
+        m.cupPresent = null;
+        m.progress = 100;
+        const done = state.orders.find((o) => Number(o.id) === Number(m.orderId));
+        if (done) upsertOrder({ ...done, status: 'COMPLETED' });
+        setTimeout(() => { if (!busy()) { m.progress = 0; renderMachine(); } }, 2000);
+        break;
+      }
+    }
+  }
+
+  changed ? render() : renderMachine();
 }
 
 // Loads the drinks (with stock) from the API and redraws.
@@ -275,7 +325,7 @@ $('drinks').addEventListener('click', async (e) => {
   render();
   try {
     if (mock) mock.order(drinkId);
-    else onOrder(await http(API.orders, { method: 'POST', body: JSON.stringify({ drinkId }) }));
+    else onOrder(await http(API.orders, { method: 'POST', body: JSON.stringify({ drinkId, copos: 1 }) }));
   } catch (err) {
     toast(err.message || 'Não foi possível iniciar a bebida.');
   } finally {

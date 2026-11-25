@@ -3,6 +3,8 @@ package br.com.fatec.mocktails.models;
 import jakarta.persistence.*;
 import lombok.Data;
 import lombok.NoArgsConstructor;
+
+import java.util.ArrayList;
 import java.util.List;
 
 //JPA
@@ -24,5 +26,5 @@ public class Drink {
 
     // Relationship 1 for many with Recipe class
     @OneToMany(mappedBy = "drink", cascade = CascadeType.ALL, orphanRemoval = true)
-    private List<Recipe> recipes;
+    private List<Recipe> recipes = new ArrayList<>();
 }
