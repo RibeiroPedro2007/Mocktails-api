@@ -200,46 +200,44 @@ public class Esp32WebSocketHandler extends TextWebSocketHandler {
         System.out.println(dadosRecebidos);
         System.out.println("================================");
 
-        // Atualiza o status do pedido no banco e avisa /topic/orders
-        atualizarStatusPedido(dadosRecebidos);
-
-        // Encaminha a mensagem para a interface web (/topic/esp/status)
-        orderWebSocketPublisher.notifyEspStatus(dadosRecebidos);
+        // Só encaminha para o front se o pedido não estiver cancelado
+        if (atualizarStatusPedido(dadosRecebidos)) {
+            orderWebSocketPublisher.notifyEspStatus(dadosRecebidos);
+        }
     }
 
-
-    // ATUALIZAR STATUS DO PEDIDO A PARTIR DO ESTADO DO ESP32
-    private void atualizarStatusPedido(String payloadJson) {
-
+    private boolean atualizarStatusPedido(String payloadJson) {
         try {
             JsonNode json = objectMapper.readTree(payloadJson);
 
             if (!json.hasNonNull("pedidoId") || !json.hasNonNull("estado")) {
-                return;
+                return true;
             }
             Long pedidoId = json.get("pedidoId").asLong();
             String estadoEsp = json.get("estado").asText();
 
+            var optOrder = orderRepository.findById(pedidoId);
+            if (optOrder.isPresent() && "CANCELLED".equals(optOrder.get().getStatus())) {
+                return false; // ignora mensagem atrasada de pedido cancelado
+            }
+
             String novoStatus = mapearEstadoParaStatus(estadoEsp);
             if (novoStatus == null) {
-                return;
+                return true;
             }
-            orderRepository.findById(pedidoId).ifPresent(order -> {
 
-                if (!novoStatus.equals(order.getStatus())
-                        && !"CANCELLED".equals(order.getStatus())) {
-
+            optOrder.ifPresent(order -> {
+                if (!novoStatus.equals(order.getStatus())) {
                     order.setStatus(novoStatus);
                     Order pedidoAtualizado = orderRepository.save(order);
                     orderWebSocketPublisher.notifyOrderUpdate(pedidoAtualizado);
                 }
             });
 
+            return true;
         } catch (Exception e) {
-            System.out.println(
-                    "ERRO AO ATUALIZAR PEDIDO VIA ESP32: "
-                            + e.getMessage()
-            );
+            System.out.println("ERRO AO ATUALIZAR PEDIDO VIA ESP32: " + e.getMessage());
+            return true;
         }
     }
     private String mapearEstadoParaStatus(String estadoEsp) {
@@ -317,6 +315,47 @@ public class Esp32WebSocketHandler extends TextWebSocketHandler {
             System.out.println(
                     "Erro ao enviar pedido: " + e.getMessage()
             );
+        }
+    }
+
+    // =====================================================
+    // CANCELAR PEDIDO NO ESP32
+    // =====================================================
+
+    public boolean sendCancelOrder(Long pedidoId) {
+
+        if (!isEspConnected()) {
+            System.out.println("ESP32 OFFLINE! Cancelamento salvo apenas no banco.");
+            return false;
+        }
+
+        try {
+            Map<String, Object> mensagem = new LinkedHashMap<>();
+            mensagem.put("pedidoId", pedidoId);
+            mensagem.put("acao", "CANCELAR");
+            mensagem.put("status", "CANCELLED");
+
+            String json = objectMapper.writeValueAsString(mensagem);
+
+            boolean enviado = false;
+
+            for (WebSocketSession session : sessions) {
+                if (session.isOpen()) {
+                    synchronized (session) {
+                        session.sendMessage(new TextMessage(json));
+                    }
+                    enviado = true;
+                }
+            }
+
+            System.out.println("CANCELAMENTO ENVIADO AO ESP32: " + json);
+
+            return enviado;
+
+        } catch (Exception e) {
+            System.out.println("ERRO AO ENVIAR CANCELAMENTO AO ESP32: " + e.getMessage());
+            e.printStackTrace();
+            return false;
         }
     }
 }

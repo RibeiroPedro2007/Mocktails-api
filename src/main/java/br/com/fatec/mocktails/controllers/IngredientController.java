@@ -4,10 +4,12 @@ import br.com.fatec.mocktails.dto.StockUpdateDTO;
 import br.com.fatec.mocktails.models.Ingredient;
 import br.com.fatec.mocktails.services.IngredientService;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
+import java.util.Map;
 
 @RestController
 @RequestMapping("/api/ingredients")
@@ -34,6 +36,12 @@ public class IngredientController {
         return ResponseEntity.status(201).body(savedIngredient);
     }
 
+    @PutMapping("/{id}")
+    public ResponseEntity<Ingredient> updateIngredient(@PathVariable Long id, @RequestBody Ingredient ingredient) {
+        Ingredient updated = ingredientService.update(id, ingredient);
+        return ResponseEntity.ok(updated);
+    }
+
     @PatchMapping("/{id}/stock")
     public ResponseEntity<Ingredient> updateStock(@PathVariable Long id, @RequestBody StockUpdateDTO dto) {
         Ingredient updated = ingredientService.updateStock(id, dto);
@@ -41,8 +49,14 @@ public class IngredientController {
     }
 
     @DeleteMapping("/{id}")
-    public ResponseEntity<Void> deleteIngredient(@PathVariable Long id) {
-        ingredientService.delete(id);
-        return ResponseEntity.noContent().build();
+    public ResponseEntity<?> deleteIngredient(@PathVariable Long id) {
+        try {
+            ingredientService.delete(id);
+            return ResponseEntity.noContent().build();
+        } catch (DataIntegrityViolationException e) {
+            return ResponseEntity.status(409).body(
+                    Map.of("message", "Não é possível excluir: esse reservatório está sendo usado em uma bebida do cardápio.")
+            );
+        }
     }
 }

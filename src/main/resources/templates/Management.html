@@ -7,36 +7,45 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@500;700&family=Instrument+Sans:wght@400;600&display=swap" rel="stylesheet">
-    <!-- href = preview path when opened as a file; th:href = server path when rendered by Spring -->
     <link rel="stylesheet" href="../static/Style.css" th:href="@{/Style.css}">
 </head>
 <body>
-    <header class="top">
-        <h1>Mocktails <span class="sub">Gerenciamento</span></h1>
-        <nav><a href="/" th:href="@{/}">Operação</a></nav>
-    </header>
+<header class="top">
+    <h1>Mocktails <span class="sub">Gerenciamento</span></h1>
+    <nav><a href="/" th:href="@{/}">Operação</a></nav>
+</header>
 
-    <main class="mgmt-grid">
-        <!-- 2.1 Reservoir levels -->
-        <section class="panel" aria-labelledby="levels-title">
-            <h2 id="levels-title">Nível dos reservatórios</h2>
-            <div id="levels" class="levels"></div>
-        </section>
+<main class="mgmt-grid">
+    <!-- 2.1 Reservoir levels -->
+    <section class="panel" aria-labelledby="levels-title">
+        <h2 id="levels-title">Nível dos reservatórios</h2>
+        <div id="levels" class="levels"></div>
+    </section>
 
-        <!-- 2.2 Restock form -->
-        <section class="panel" aria-labelledby="restock-title">
-            <h2 id="restock-title">Reabastecimento</h2>
-            <form id="restock" class="form">
-                <label>Reservatório <select id="rs-ingredient" required></select></label>
-                <!-- Only shown when "+ Novo produto…" is selected: creates a new reservoir for any kind of liquid -->
-                <fieldset id="rs-new" class="new-product" hidden>
-                    <legend>Novo produto</legend>
-                    <label>Nome do produto <input id="rs-name" maxlength="60" placeholder="Ex.: Suco de uva"></label>
-                    <label>Capacidade do reservatório (litros) <input id="rs-capacity" type="number" min="0.01" step="any"></label>
-                    <label>Pino da bomba <input id="rs-pin" type="number" min="0" step="1"></label>
-                    <span class="muted">O pino é o número da saída do ESP32 onde a bomba desse produto está ligada.</span>
-                </fieldset>
-                <label>Quantidade de garrafas <input id="rs-count" type="number" min="1" step="1" value="1" required></label>
+    <!-- 2.2 Restock / New / Edit reservoir form -->
+    <section class="panel" aria-labelledby="restock-title">
+        <h2 id="restock-title">Reabastecimento</h2>
+        <form id="restock" class="form" novalidate>
+            <label id="rs-select-wrap">Reservatório <select id="rs-ingredient"></select></label>
+
+            <!-- Shown when "+ Novo produto…" is selected OR when editing an existing reservoir -->
+            <fieldset id="rs-new" class="new-product" hidden>
+                <legend id="rs-new-legend">Novo produto</legend>
+                <label>Nome do produto <input id="rs-name" maxlength="60" placeholder="Ex.: Suco de uva"></label>
+                <label>Capacidade do reservatório (litros) <input id="rs-capacity" type="number" min="0.01" step="any"></label>
+                <label id="rs-stock-wrap" hidden>Estoque atual (litros) <input id="rs-stock" type="number" min="0" step="any"></label>
+                <label>Bomba
+                    <select id="rs-pump">
+                        <option value="A" selected>A — Bomba da esquerda</option>
+                        <option value="B">B — Bomba da direita</option>
+                    </select>
+                </label>
+                <span class="muted">Apenas as bombas A (esquerda) e B (direita) estão disponíveis.</span>
+            </fieldset>
+
+            <!-- Bottle restock inputs (hidden while editing an existing reservoir) -->
+            <div id="rs-bottles-wrap" class="form">
+                <label>Quantidade de garrafas <input id="rs-count" type="number" min="1" step="1" value="1"></label>
                 <label>Tamanho da garrafa
                     <select id="rs-size">
                         <option value="0.5">0,5 litro</option>
@@ -47,61 +56,64 @@
                         <option value="other">Outro tamanho…</option>
                     </select>
                 </label>
-                <!-- Only shown when "Outro tamanho…" is selected -->
                 <label id="rs-other-wrap" hidden>Tamanho em litros <input id="rs-other" type="number" min="0.01" step="any"></label>
-                <!-- Live summary: total to add and free space in the chosen reservoir (updated by Management.js) -->
                 <output id="rs-total" class="muted" for="rs-count rs-size rs-other"></output>
-                <button class="btn">Atualizar estoque</button>
-            </form>
-        </section>
-
-        <!-- 2.3 Reports and demand analysis -->
-        <section class="panel wide" aria-labelledby="reports-title">
-            <h2 id="reports-title">Relatórios</h2>
-            <div class="kpis">
-                <div class="kpi"><b id="kpi-day">0</b><span>copos servidos hoje</span></div>
-                <div class="kpi"><b id="kpi-week">0</b><span>copos nos últimos 7 dias</span></div>
-                <div class="kpi"><b id="kpi-month">0</b><span>copos nos últimos 30 dias</span></div>
             </div>
-            <div class="charts">
-                <div><h3>Bebidas mais vendidas</h3><div class="chart-box"><canvas id="chart-rank"></canvas></div></div>
-                <div><h3>Consumo de insumos (ml por dia)</h3><div class="chart-box"><canvas id="chart-use"></canvas></div></div>
+
+            <div class="actions">
+                <button class="btn" id="rs-submit" type="submit">Atualizar estoque</button>
+                <button type="button" class="btn ghost" id="rs-cancel" hidden>Cancelar edição</button>
             </div>
-        </section>
+        </form>
+    </section>
 
-        <!-- 2.4 Menu management (CRUD) -->
-        <section class="panel wide" aria-labelledby="menu-title">
-            <h2 id="menu-title">Cardápio</h2>
-            <ul id="menu" class="menu"></ul>
-            <form id="drink-form" class="form" novalidate>
-                <h3 id="drink-form-title">Nova bebida</h3>
-                <label>Nome <input id="d-name" maxlength="80" required></label>
-                <table class="recipe">
-                    <thead><tr><th>Insumo</th><th>Quantidade (ml)</th><th>Tempo da bomba (ms)</th></tr></thead>
-                    <tbody id="recipe-rows"></tbody>
-                </table>
-                <div class="actions">
-                    <button class="btn" id="d-submit">Cadastrar bebida</button>
-                    <button type="button" class="btn ghost" id="d-cancel" hidden>Cancelar edição</button>
-                </div>
-            </form>
-        </section>
+    <!-- 2.3 Reports and demand analysis -->
+    <section class="panel wide" aria-labelledby="reports-title">
+        <h2 id="reports-title">Relatórios</h2>
+        <div class="kpis">
+            <div class="kpi"><b id="kpi-day">0</b><span>copos servidos hoje</span></div>
+            <div class="kpi"><b id="kpi-week">0</b><span>copos nos últimos 7 dias</span></div>
+            <div class="kpi"><b id="kpi-month">0</b><span>copos nos últimos 30 dias</span></div>
+        </div>
+        <div class="charts">
+            <div><h3>Bebidas mais vendidas</h3><div class="chart-box"><canvas id="chart-rank"></canvas></div></div>
+            <div><h3>Consumo de insumos (ml por dia)</h3><div class="chart-box"><canvas id="chart-use"></canvas></div></div>
+        </div>
+    </section>
 
-        <!-- 2.5 Full order history -->
-        <section class="panel wide" aria-labelledby="history-title">
-            <h2 id="history-title">Histórico de pedidos</h2>
-            <div class="table-wrap">
-                <table class="history">
-                    <thead><tr><th>Pedido</th><th>Data e hora</th><th>Bebida</th><th>Tempo de dosagem</th><th>Status</th></tr></thead>
-                    <tbody id="history"></tbody>
-                </table>
+    <!-- 2.4 Menu management (CRUD) -->
+    <section class="panel wide" aria-labelledby="menu-title">
+        <h2 id="menu-title">Cardápio</h2>
+        <ul id="menu" class="menu"></ul>
+        <form id="drink-form" class="form" novalidate>
+            <h3 id="drink-form-title">Nova bebida</h3>
+            <label>Nome <input id="d-name" maxlength="80" required></label>
+            <table class="recipe">
+                <thead><tr><th>Insumo</th><th>Quantidade (ml)</th></tr></thead>
+                <tbody id="recipe-rows"></tbody>
+            </table>
+            <div class="actions">
+                <button class="btn" id="d-submit">Cadastrar bebida</button>
+                <button type="button" class="btn ghost" id="d-cancel" hidden>Cancelar edição</button>
             </div>
-        </section>
-    </main>
+        </form>
+    </section>
 
-    <div id="toast" role="status" aria-live="polite"></div>
+    <!-- 2.5 Full order history -->
+    <section class="panel wide" aria-labelledby="history-title">
+        <h2 id="history-title">Histórico de pedidos</h2>
+        <div class="table-wrap">
+            <table class="history">
+                <thead><tr><th>Pedido</th><th>Data e hora</th><th>Bebida</th><th>Status</th></tr></thead>
+                <tbody id="history"></tbody>
+            </table>
+        </div>
+    </section>
+</main>
 
-    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
-    <script src="../static/Management.js" th:src="@{/Management.js}"></script>
+<div id="toast" role="status" aria-live="polite"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+<script src="../static/Management.js" th:src="@{/Management.js}"></script>
 </body>
 </html>

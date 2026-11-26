@@ -32,7 +32,4 @@ public class Recipe {
 
     @Column(nullable = false)
     private Double QuantityMl;
-
-    @Column(nullable = false)
-    private Long dosageTimeMs;
 }

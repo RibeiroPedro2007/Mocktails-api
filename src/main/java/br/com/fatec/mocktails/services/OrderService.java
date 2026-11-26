@@ -169,6 +169,10 @@ public class OrderService {
 
         // Atualiza interface web
         orderWebSocketPublisher.notifyOrderUpdate(savedOrder);
+
+        // Envia flag de cancelamento para o ESP32
+        esp32WebSocketHandler.sendCancelOrder(savedOrder.getId());
+
         return savedOrder;
     }
 }   

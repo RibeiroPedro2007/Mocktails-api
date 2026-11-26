@@ -6,5 +6,4 @@ import lombok.Data;
 public class RecipeRequestDTO {
     private Long ingredientId;
     private Double quantityMl;
-    private Long dosageTimeMs;
 }

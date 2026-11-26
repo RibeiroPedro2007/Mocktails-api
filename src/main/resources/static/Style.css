@@ -172,3 +172,187 @@ input, select { min-height: 2.75rem; padding: 0 .75rem; border: 1px solid var(--
 
 /* The hidden attribute must win over display rules such as .form label { display: grid } */
 [hidden] { display: none !important; }
+
+/* Reservoir actions & inline edit form */
+[hidden] { display: none !important; }
+.level-actions { display: flex; flex-wrap: wrap; gap: .4rem; margin-top: .45rem; }
+.btn.sm { min-height: 2rem; padding: 0 .7rem; font-size: .85rem; }
+.ing-edit { margin-top: 1.25rem; padding-top: 1.25rem; border-top: 1px solid var(--line); }
+
+/* ---------- Operação: seleção múltipla e estados visuais ---------- */
+
+.drink {
+  transition: filter .2s ease, opacity .2s ease, border-color .2s ease, transform .15s ease;
+}
+
+/* Indisponível (sem estoque, limite 3/3 com qtd 0, ou máquina offline): escuro e sem cor */
+.drink.unavailable {
+  filter: grayscale(1) brightness(0.72);
+  opacity: 0.62;
+}
+
+/* Destaque colorido quando o drink tem 1 ou mais selecionados */
+.drink.selected {
+  border-color: var(--c);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--c) 35%, transparent);
+}
+
+/* Contador (− 0 +) dentro do card */
+.stepper {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.step-btn {
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  border: 1px solid color-mix(in srgb, var(--c) 55%, transparent);
+  background: color-mix(in srgb, var(--c) 18%, transparent);
+  color: inherit;
+  font-size: 1.2rem;
+  font-weight: 700;
+  line-height: 1;
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+  transition: background .15s ease, opacity .15s ease, transform .1s ease;
+}
+
+.step-btn:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--c) 32%, transparent);
+}
+
+.step-btn:active:not(:disabled) {
+  transform: scale(0.94);
+}
+
+.step-btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+  border-color: color-mix(in srgb, currentColor 20%, transparent);
+  background: transparent;
+}
+
+.step-val {
+  min-width: 24px;
+  text-align: center;
+  font-size: 1.05rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Barra fixa de preparo do pedido */
+.order-bar {
+  margin-top: 18px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  transition: filter .2s ease, opacity .2s ease;
+}
+
+.order-bar.is-offline {
+  filter: grayscale(1) brightness(0.8);
+  opacity: 0.72;
+}
+
+.order-info {
+  min-width: 200px;
+  flex: 1;
+}
+
+.order-count {
+  display: inline-block;
+  font-size: 0.8rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  opacity: 0.75;
+}
+
+.order-summary {
+  margin: 4px 0 0;
+  font-weight: 600;
+}
+
+.order-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.order-clear {
+  padding: 10px 14px;
+  border-radius: 10px;
+  border: 1px solid color-mix(in srgb, currentColor 22%, transparent);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.order-clear:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.order-submit {
+  padding: 11px 20px;
+  border-radius: 10px;
+  border: 0;
+  background: #2f9e66;
+  color: #fff;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background .15s ease, filter .2s ease, opacity .2s ease;
+}
+
+.order-submit:hover:not(:disabled) {
+  background: #268655;
+}
+
+/* Sem cor e travado quando offline, vazio ou ocupado */
+.order-submit:disabled {
+  background: color-mix(in srgb, currentColor 18%, transparent);
+  color: color-mix(in srgb, currentColor 65%, transparent);
+  cursor: not-allowed;
+}
+
+/* Lixeirinha de cancelar pedido */
+.order-status-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.order-cancel {
+  display: inline-grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  opacity: 0.55;
+  cursor: pointer;
+  transition: opacity .15s ease, background .15s ease, color .15s ease;
+}
+
+.order-cancel:hover:not(:disabled) {
+  opacity: 1;
+  color: #ef4444;
+  background: rgba(239, 68, 68, 0.14);
+}
+
+.order-cancel:disabled {
+  opacity: 0.25;
+  cursor: not-allowed;
+}

@@ -42,12 +42,22 @@
         <!-- Left column: drink menu -->
         <section aria-labelledby="menu-title">
             <h2 id="menu-title">Cardápio</h2>
+            <div id="drinks" class="drinks"></div>
             <!--
                 Empty on purpose. renderDrinks() creates one card per active drink, with:
                 the stock gauge, how many drinks the stock can make, and the "Preparar bebida" button.
                 The button is disabled when the drink is out of stock, the machine is offline or busy.
             -->
-            <div id="drinks" class="drinks"></div>
+            <div id="order-bar" class="panel order-bar">
+                <div class="order-info">
+                    <span id="order-count" class="order-count">0/3 selecionados</span>
+                    <p id="order-summary" class="order-summary">Selecione até 3 bebidas no cardápio</p>
+                </div>
+                <div class="order-actions">
+                    <button id="clear-order" type="button" class="order-clear" disabled>Limpar</button>
+                    <button id="submit-order" type="button" class="order-submit" disabled>Máquina offline</button>
+                </div>
+            </div>
         </section>
 
         <!-- Right column: machine status and order queue -->

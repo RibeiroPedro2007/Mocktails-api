@@ -1,32 +1,22 @@
 // ============================================================================
 // Function.js - Operation screen logic. Loaded by templates/Operation.html.
-//
-// How it works:
-//   1. The page starts with empty containers (menu, machine panel, order list).
-//   2. This script loads drinks and orders from the REST API and keeps them in "state".
-//   3. It subscribes to WebSocket topics (STOMP) to receive live updates.
-//   4. Every change goes into "state" first, then the render functions redraw the screen.
-//
-// Add ?mock=1 to the URL to run the screen without the ESP32 (fake data, no server calls).
 // ============================================================================
 
 // ---------- Configuration ----------
 
-// true when the URL contains ?mock=1
 const MOCK = new URLSearchParams(location.search).has('mock');
-// If true, drinks stay blocked while the machine is offline.
 const REQUIRE_MACHINE = true; // set to false while the ESP32 does not report its status yet
+const MAX_ORDER = 3;          // máximo de drinks por pedido
 
-// Every endpoint and topic in one place: if the back end changes, only edit here.
 const API = {
   drinks: '/api/drinks',
   orders: '/api/orders',
+  cancelOrder: (id) => `/api/orders/${id}/cancel`,
   socket: '/ws-mocktails',
   topicOrders: '/topic/orders',
-  topicMachine: '/topic/esp/status', // Real rote of OrderWebSocketPublisher
+  topicMachine: '/topic/esp/status',
 };
 
-// add PREPARING and NEED_CUPS to stay the same my Backend
 const STATUS = {
   PENDING: 'Na fila',
   PREPARING: 'Em preparo',
@@ -34,50 +24,120 @@ const STATUS = {
   COMPLETED: 'Concluído',
   NEED_CUPS: 'Faltam copos',
   ERROR: 'Erro',
-  CANCELLED: 'Cancelado'
+  CANCELLED: 'Cancelado',
+  CANCELED: 'Cancelado',
 };
 
 const ACTIVE = ['PENDING', 'PREPARING', 'IN_PREPARATION', 'NEED_CUPS'];
-const MAX_GAUGE = 20; // servings that fill a stock gauge completely
-const GLASS_H = 143;  // liquid height inside the glass, in SVG units
+const MAX_GAUGE = 20;
+const GLASS_H = 143;
 
 // ---------- State ----------
-// Single source of truth. Never edit the screen directly: change the state, then call a render function.
+
 const state = {
   drinks: [],      // drinks from /api/drinks
   orders: [],      // the 10 most recent orders, newest first
-  loaded: MOCK,    // false until the first load finishes (shows "Carregando cardápio…")
-  sending: false,  // true while a new order request is in flight (prevents double clicks)
+  cart: {},        // { [drinkId]: quantidade selecionada }
+  loaded: MOCK,
+  sending: false,
   machine: { connected: false, cupPresent: null, progress: 0, orderId: null },
 };
 
 // ---------- Helpers ----------
 
-// Shortcut for document.getElementById.
 const $ = (id) => document.getElementById(id);
 
-// Escapes HTML special characters. Needed because texts (like drink names) are inserted
-// with innerHTML; without this, a name containing "<script>" could run code (XSS).
-const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({
+  '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+}[c]));
 
-// Turns a drink name into a color: the same name always gives the same hue (0-359),
-// so each drink keeps its own color without storing it in the database.
 const tint = (name) => `hsl(${[...name].reduce((h, c) => (h * 31 + c.charCodeAt(0)) % 360, 7)} 55% 52%)`;
 
-// True if any order is queued or being prepared.
 const busy = () => state.orders.some((o) => ACTIVE.includes(o.status));
 
-// How many drinks the current stock can make: the scarcest ingredient decides.
-// Example: 600 ml of lime / 60 ml per drink = 10, but 100 ml of soda / 140 ml = 0, so the result is 0.
-const servings = (d) => (d.recipes?.length
-    ? Math.min(...d.recipes.map((r) => Math.floor(r.ingredient.currentQuantityMl / (r.QuantityMl ?? r.quantityMl))))
+const ingKey = (ing) => ing?.id ?? ing?.name;
+const recipeQty = (r) => Number(r.QuantityMl ?? r.quantityMl ?? 0);
+
+// Total de bebidas atualmente selecionadas no carrinho (0..3)
+const totalSelected = () => Object.values(state.cart).reduce((sum, q) => sum + q, 0);
+
+// Estoque real de um drink (sem descontar o carrinho)
+const baseServings = (d) => (d.recipes?.length
+    ? Math.min(...d.recipes.map((r) => Math.floor(r.ingredient.currentQuantityMl / recipeQty(r))))
     : 0);
 
-// LocalDateTime arrives as an ISO string or, depending on Jackson settings, as [y, m, d, h, min, s].
-// Months in JavaScript start at 0, hence the "- 1".
-const toDate = (v) => (Array.isArray(v) ? new Date(v[0], v[1] - 1, v[2], v[3] ?? 0, v[4] ?? 0, v[5] ?? 0) : new Date(v));
+// Mapa de estoque restante (em ml) descontando ao vivo os drinks já selecionados no carrinho
+function remainingStock() {
+  const map = new Map();
+  for (const d of state.drinks) {
+    for (const r of d.recipes ?? []) {
+      const k = ingKey(r.ingredient);
+      if (!map.has(k)) map.set(k, r.ingredient.currentQuantityMl);
+    }
+  }
+  for (const [idStr, qty] of Object.entries(state.cart)) {
+    if (qty <= 0) continue;
+    const drink = state.drinks.find((d) => d.id === Number(idStr));
+    if (!drink) continue;
+    for (const r of drink.recipes ?? []) {
+      const k = ingKey(r.ingredient);
+      map.set(k, Math.max(0, (map.get(k) ?? 0) - recipeQty(r) * qty));
+    }
+  }
+  return map;
+}
 
-// fetch() wrapper: sends/receives JSON and turns HTTP errors (like 500) into JavaScript errors.
+// Quantas doses A MAIS desse drink ainda cabem no estoque restante
+function extraServings(d, stockMap) {
+  if (!d.recipes?.length) return 0;
+  return Math.min(...d.recipes.map((r) => {
+    const avail = stockMap.get(ingKey(r.ingredient)) ?? 0;
+    const need = recipeQty(r);
+    return need > 0 ? Math.floor(avail / need) : 0;
+  }));
+}
+
+// Remove itens do carrinho caso o estoque tenha mudado em tempo real e não comporte mais
+function reconcileCart() {
+  const stock = new Map();
+  for (const d of state.drinks) {
+    for (const r of d.recipes ?? []) {
+      const k = ingKey(r.ingredient);
+      if (!stock.has(k)) stock.set(k, r.ingredient.currentQuantityMl);
+    }
+  }
+
+  let total = 0;
+  const nextCart = {};
+
+  for (const [idStr, qty] of Object.entries(state.cart)) {
+    const id = Number(idStr);
+    const drink = state.drinks.find((d) => d.id === id && d.active !== false);
+    if (!drink || qty <= 0) continue;
+
+    let kept = 0;
+    for (let i = 0; i < qty && total < MAX_ORDER; i++) {
+      const canMake = drink.recipes?.length && drink.recipes.every(
+          (r) => (stock.get(ingKey(r.ingredient)) ?? 0) >= recipeQty(r),
+      );
+      if (!canMake) break;
+      for (const r of drink.recipes) {
+        const k = ingKey(r.ingredient);
+        stock.set(k, stock.get(k) - recipeQty(r));
+      }
+      kept++;
+      total++;
+    }
+    if (kept > 0) nextCart[id] = kept;
+  }
+
+  state.cart = nextCart;
+}
+
+const toDate = (v) => (Array.isArray(v)
+    ? new Date(v[0], v[1] - 1, v[2], v[3] ?? 0, v[4] ?? 0, v[5] ?? 0)
+    : new Date(v));
+
 async function http(url, opts) {
   const res = await fetch(url, { headers: { 'Content-Type': 'application/json' }, ...opts });
   if (!res.ok) {
@@ -87,119 +147,252 @@ async function http(url, opts) {
   return res.json();
 }
 
-// Shows a message at the bottom of the screen for 4 seconds (the #toast element).
 function toast(message) {
   const el = $('toast');
   el.textContent = message;
   el.classList.add('show');
-  clearTimeout(toast.t); // restart the timer if another message arrives
+  clearTimeout(toast.t);
   toast.t = setTimeout(() => el.classList.remove('show'), 4000);
 }
 
 /* ---------- rendering ---------- */
 
-// Why a drink cannot be prepared right now, or null if it can.
-// The order of the checks matters: the first one that matches wins.
-function blockReason(d) {
-  const m = state.machine;
-  if (servings(d) < 1) return 'Sem estoque';
-  if (REQUIRE_MACHINE && !m.connected) return 'Máquina offline';
-  if (busy() || state.sending) return 'Máquina ocupada';
+// Retorna o motivo de bloqueio global da tela (afeta todos os cards e o botão principal)
+function globalBlock() {
+  if (REQUIRE_MACHINE && !state.machine.connected) return 'offline';
+  if (state.sending) return 'sending';
+  if (busy()) return 'busy';
   return null;
 }
 
-// Draws the drink cards. Rebuilds the whole grid, so it should not run at high frequency.
 function renderDrinks() {
   const list = state.drinks.filter((d) => d.active !== false);
   if (!list.length) {
     $('drinks').innerHTML = `<p class="empty-msg">${state.loaded ? 'Nenhuma bebida no cardápio. Cadastre uma em Gerenciamento.' : 'Carregando cardápio…'}</p>`;
     return;
   }
+
+  const block = globalBlock();
+  const total = totalSelected();
+  const stockMap = remainingStock();
+
   $('drinks').innerHTML = list.map((d) => {
-    const n = servings(d);
-    const why = blockReason(d);
-    // --c and --lvl are CSS variables used by the stock gauge (see Style.css).
-    return `<article class="drink${n < 1 ? ' empty' : ''}" style="--c:${tint(d.name)};--lvl:${Math.min(n, MAX_GAUGE) / MAX_GAUGE * 100}%">
+    const qty = state.cart[d.id] || 0;
+    const base = baseServings(d);
+    const extra = extraServings(d, stockMap);
+
+    const canDec = !block && qty > 0;
+    const canInc = !block && total < MAX_ORDER && extra >= 1;
+
+    // Fica escuro e sem cor se:
+    // - máquina offline / ocupada / enviando
+    // - sem insumo e nada selecionado
+    // - atingiu o limite (3/3) e este card está zerado
+    const unavailable = Boolean(block) || (qty === 0 && (!canInc || base < 1));
+
+    let stockText;
+    if (base < 1) {
+      stockText = 'Insumos insuficientes';
+    } else if (extra < 1) {
+      stockText = qty > 0 ? 'Limite de insumos atingido' : 'Insumos reservados no pedido';
+    } else {
+      stockText = `Dá para ${extra} ${extra === 1 ? 'bebida' : 'bebidas'}`;
+    }
+
+    const classes = ['drink'];
+    if (unavailable) classes.push('unavailable');
+    if (qty > 0 && !block) classes.push('selected');
+
+    return `<article class="${classes.join(' ')}" style="--c:${tint(d.name)};--lvl:${Math.min(extra, MAX_GAUGE) / MAX_GAUGE * 100}%">
       <span class="gauge"><i></i></span>
       <div class="body">
         <h3>${esc(d.name)}</h3>
-        <p class="stock">${n < 1 ? 'Insumos insuficientes' : `Dá para ${n} ${n === 1 ? 'bebida' : 'bebidas'}`}</p>
-        <button class="prepare" data-id="${d.id}" ${why ? 'disabled' : ''}>${why ?? 'Preparar bebida'}</button>
+        <p class="stock">${stockText}</p>
+        <div class="stepper" role="group" aria-label="Quantidade de ${esc(d.name)}">
+          <button type="button" class="step-btn" data-action="dec" data-id="${d.id}" ${canDec ? '' : 'disabled'} aria-label="Remover ${esc(d.name)}">−</button>
+          <span class="step-val" aria-live="polite">${qty}</span>
+          <button type="button" class="step-btn" data-action="inc" data-id="${d.id}" ${canInc ? '' : 'disabled'} aria-label="Adicionar ${esc(d.name)}">+</button>
+        </div>
       </div>
     </article>`;
   }).join('');
 }
 
-// Updates the machine panel: connection badge, glass, percentage and cup sensor.
-// It only changes existing elements (no rebuild), so it is cheap enough for progress updates.
+function renderOrderBar() {
+  const bar = $('order-bar');
+  const countEl = $('order-count');
+  const summaryEl = $('order-summary');
+  const clearBtn = $('clear-order');
+  const submitBtn = $('submit-order');
+
+  const block = globalBlock();
+  const total = totalSelected();
+
+  const items = Object.entries(state.cart)
+      .filter(([, q]) => q > 0)
+      .map(([idStr, q]) => {
+        const drink = state.drinks.find((d) => d.id === Number(idStr));
+        return `${q}× ${drink?.name ?? 'Bebida'}`;
+      });
+
+  countEl.textContent = `${total}/${MAX_ORDER} selecionados`;
+
+  if (block === 'offline') {
+    summaryEl.textContent = 'Conecte a máquina para montar um pedido';
+  } else if (block === 'busy') {
+    const activeCount = state.orders.filter((o) => ACTIVE.includes(o.status)).length;
+    summaryEl.textContent = `Aguardando preparo atual (${activeCount} na fila)`;
+  } else if (items.length) {
+    summaryEl.textContent = items.join(' · ');
+  } else {
+    summaryEl.textContent = `Selecione até ${MAX_ORDER} bebidas no cardápio`;
+  }
+
+  clearBtn.disabled = Boolean(block) || total === 0;
+
+  if (block === 'offline') {
+    submitBtn.textContent = 'Máquina offline';
+    submitBtn.disabled = true;
+  } else if (block === 'sending') {
+    submitBtn.textContent = 'Enviando pedido…';
+    submitBtn.disabled = true;
+  } else if (block === 'busy') {
+    submitBtn.textContent = 'Máquina ocupada';
+    submitBtn.disabled = true;
+  } else if (total === 0) {
+    submitBtn.textContent = 'Preparar pedido';
+    submitBtn.disabled = true;
+  } else {
+    submitBtn.textContent = `Preparar pedido (${total})`;
+    submitBtn.disabled = false;
+  }
+
+  bar.classList.toggle('is-offline', block === 'offline');
+  bar.classList.toggle('is-ready', !block && total > 0);
+}
+
+// Acha o pedido realmente em preparo (ou o PENDING mais antigo da fila)
+function findCurrentOrder() {
+  const m = state.machine;
+  const active = state.orders.filter((o) => ACTIVE.includes(o.status));
+  if (!active.length) return null;
+
+  return (
+      active.find((o) => o.status === 'IN_PREPARATION' || o.status === 'PREPARING' || o.status === 'NEED_CUPS')
+      || active.find((o) => Number(o.id) === Number(m.orderId))
+      || [...active].sort((a, b) => a.id - b.id)[0]
+  );
+}
+
 function renderMachine() {
   const m = state.machine;
-  const current = state.orders.find((o) => ACTIVE.includes(o.status)); // order in progress, if any
+  const activeOrders = state.orders.filter((o) => ACTIVE.includes(o.status));
+  const current = findCurrentOrder();
+
   $('conn').className = `pill ${m.connected ? 'on' : ''}`;
   $('conn').textContent = m.connected ? 'Máquina online' : 'Máquina offline';
-  // Liquid color follows the drink being prepared.
+
   if (current?.drink) $('glass').style.setProperty('--liquid', tint(current.drink.name));
-  // Moves the liquid rectangle: 0% pushes it fully below the glass, 100% leaves it at the top.
   $('liquid').style.transform = `translateY(${GLASS_H * (1 - m.progress / 100)}px)`;
-  $('glass').setAttribute('aria-valuenow', Math.round(m.progress)); // for screen readers
+  $('glass').setAttribute('aria-valuenow', Math.round(m.progress));
   $('m-pct').textContent = `${Math.round(m.progress)}%`;
-  $('m-state').textContent = !m.connected ? 'Máquina offline' : current ? `Preparando ${current.drink?.name ?? 'bebida'}` : 'Pronta';
-  // The sensor only runs while an order is in progress, so before that there is nothing to show.
+
+  if (!m.connected) {
+    $('m-state').textContent = 'Máquina offline';
+  } else if (current) {
+    const remaining = activeOrders.length - 1;
+    const queueSuffix = remaining > 0 ? ` (+${remaining} na fila)` : '';
+    $('m-state').textContent = `Preparando ${current.drink?.name ?? 'bebida'}${queueSuffix}`;
+  } else {
+    $('m-state').textContent = 'Pronta';
+  }
+
   const cup = $('m-cup');
   let text = 'Sensor de copo: inativo até iniciar um pedido';
   if (current) {
     text = m.cupPresent === true ? 'Copo detectado'
-      : m.cupPresent === false ? 'Copo não detectado. A máquina continua verificando.' : 'Procurando o copo…';
+        : m.cupPresent === false ? 'Copo não detectado. A máquina continua verificando.' : 'Procurando o copo…';
   }
-  cup.className = `m-cup${current && m.cupPresent === false ? ' bad' : ''}`; // "bad" = red warning
+  cup.className = `m-cup${current && m.cupPresent === false ? ' bad' : ''}`;
   cup.textContent = text;
 }
 
-// Draws the list of the last 10 orders.
 function renderOrders() {
-  $('orders').innerHTML = state.orders.length ? state.orders.map((o) => `
+  $('orders').innerHTML = state.orders.length ? state.orders.map((o) => {
+    const canCancel = ACTIVE.includes(o.status);
+    return `
     <li>
       <span>#${esc(o.id)} ${esc(o.drink?.name ?? 'Bebida desconhecida')}</span>
-      <span class="tag s-${String(o.status).toLowerCase()}">${STATUS[o.status] ?? esc(o.status)}</span>
+      <span class="order-status-wrap">
+        <span class="tag s-${String(o.status).toLowerCase()}">${STATUS[o.status] ?? esc(o.status)}</span>
+        ${canCancel ? `<button type="button" class="order-cancel" data-id="${o.id}" title="Cancelar pedido #${esc(o.id)}" aria-label="Cancelar pedido #${esc(o.id)}">
+          <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M3 6h18"/><path d="M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/>
+          </svg>
+        </button>` : ''}
+      </span>
       <time>${toDate(o.dateTime).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</time>
-    </li>`).join('') : '<li>Nenhum pedido ainda.</li>';
+    </li>`;
+  }).join('') : '<li>Nenhum pedido ainda.</li>';
 }
 
-// Redraws everything from the current state.
-const render = () => { renderDrinks(); renderMachine(); renderOrders(); };
+// Cancelar pedido pela lixeirinha
+$('orders').addEventListener('click', async (e) => {
+  const btn = e.target.closest('.order-cancel');
+  if (!btn || btn.disabled) return;
+
+  const id = Number(btn.dataset.id);
+  if (!confirm(`Cancelar o pedido #${id}?`)) return;
+
+  btn.disabled = true;
+  try {
+    if (mock) {
+      mock.cancel(id);
+    } else {
+      const updated = await http(API.cancelOrder(id), { method: 'PATCH' });
+      onOrder(updated);
+    }
+    toast(`Pedido #${id} cancelado.`);
+  } catch (err) {
+    btn.disabled = false;
+    toast(err.message || 'Não foi possível cancelar o pedido.');
+  }
+});
+
+const render = () => {
+  renderDrinks();
+  renderOrderBar();
+  renderMachine();
+  renderOrders();
+};
 
 /* ---------- state updates ---------- */
 
-// Keeps only the 10 newest orders (the highest ids), newest first.
 const setOrders = (list) => { state.orders = list.sort((a, b) => b.id - a.id).slice(0, 10); };
-// Adds an order, or replaces it if it is already in the list (same id), e.g. when its status changes.
 const upsertOrder = (o) => setOrders([o, ...state.orders.filter((x) => x.id !== o.id)]);
 
-// /topic/orders: a new or updated Order.
 function onOrder(o) {
   const m = state.machine;
   upsertOrder(o);
+
   if (o.status === 'IN_PREPARATION' || o.status === 'PREPARING') {
     m.orderId = o.id;
     m.progress = 0;
-  }// a new drink started: empty glass
-  else if (!ACTIVE.includes(o.status) && o.id === m.orderId) {
-    // The current order ended: completed fills the glass, any other ending empties it.
+  } else if (!ACTIVE.includes(o.status) && Number(o.id) === Number(m.orderId)) {
     m.progress = o.status === 'COMPLETED' ? 100 : 0;
-    if (!ACTIVE.includes(o.status)) m.cupPresent = null;
-    // Keep the full glass visible for 2 seconds, then reset it if no other order started.
+    m.cupPresent = null;
+    if (o.status !== 'COMPLETED') m.orderId = null;
     setTimeout(() => { if (!busy()) { m.progress = 0; renderMachine(); } }, 2000);
   }
-  loadDrinks(); // stock changed
+
+  loadDrinks();
   render();
 }
 
-// /topic/machine: { connected, cupPresent, progress, orderId }.
 function onMachine(msg) {
   const m = state.machine;
   let changed = false;
 
-  // 1. Connection (send by Esp32WebSocketHandler to the connect/disconnect)
   if (msg.status === 'ONLINE' || msg.status === 'OFFLINE') {
     const isOnline = msg.status === 'ONLINE';
     changed = m.connected !== isOnline;
@@ -207,33 +400,44 @@ function onMachine(msg) {
     if (!isOnline) {
       m.cupPresent = null;
       m.progress = 0;
+      state.cart = {};
     }
   }
 
-  // 2. Events sends by ESP32 during the order
   if (msg.estado) {
-    // Se recebeu evento do ESP32, ele está obviamente online
     if (!m.connected) { m.connected = true; changed = true; }
+
+    const targetId = msg.pedidoId ?? m.orderId;
+    const targetOrder = state.orders.find((o) => Number(o.id) === Number(targetId));
+
+    // Se o pedido já foi cancelado, ignora qualquer evento atrasado do ESP32 pra ele
+    if (targetOrder && (targetOrder.status === 'CANCELLED' || targetOrder.status === 'CANCELED')) {
+      if (changed) render();
+      return;
+    }
+
     if (msg.pedidoId) m.orderId = msg.pedidoId;
 
     switch (msg.estado) {
       case 'PROCURANDO':
-        m.cupPresent = null; // "Search cup"
+        m.cupPresent = null;
         m.progress = 15;
         break;
       case 'ENCHENDO':
-        m.cupPresent = true; // "Cup detected"
+        m.cupPresent = true;
         m.progress = 65;
         break;
       case 'ERRO_COPOS':
-        m.cupPresent = false; // Stay red: "Cup don't detected"
+        m.cupPresent = false;
         toast(`Faltam ${(msg.pedidos || 1) - (msg.atendidos || 0)} copo(s)!`);
         break;
       case 'CONCLUIDO': {
         m.cupPresent = null;
         m.progress = 100;
-        const done = state.orders.find((o) => Number(o.id) === Number(m.orderId));
-        if (done) upsertOrder({ ...done, status: 'COMPLETED' });
+        if (targetOrder && ACTIVE.includes(targetOrder.status)) {
+          upsertOrder({ ...targetOrder, status: 'COMPLETED' });
+          changed = true;
+        }
         setTimeout(() => { if (!busy()) { m.progress = 0; renderMachine(); } }, 2000);
         break;
       }
@@ -243,100 +447,207 @@ function onMachine(msg) {
   changed ? render() : renderMachine();
 }
 
-// Loads the drinks (with stock) from the API and redraws.
 async function loadDrinks() {
-  if (MOCK) return; // in mock mode the data is local
+  if (MOCK) return;
   state.drinks = await http(API.drinks);
   state.loaded = true;
+  reconcileCart();
   render();
 }
 
-// Loads the orders from the API and redraws.
 async function loadOrders() {
   if (MOCK) return;
   setOrders(await http(API.orders));
   render();
 }
 
-// Loads both in parallel. If the server cannot be reached, shows a message.
-const refresh = () => Promise.all([loadDrinks(), loadOrders()]).catch(() => toast('Não foi possível conectar ao servidor.'));
+const refresh = () => Promise.all([loadDrinks(), loadOrders()])
+    .catch(() => toast('Não foi possível conectar ao servidor.'));
 
-// Opens the WebSocket connection (STOMP over SockJS) and subscribes to the topics.
 function connectStomp() {
   const client = new StompJs.Client({
     webSocketFactory: () => new SockJS(API.socket),
-    reconnectDelay: 3000, // if the connection drops, try again every 3 seconds
+    reconnectDelay: 3000,
     onConnect: () => {
       client.subscribe(API.topicOrders, (frame) => onOrder(JSON.parse(frame.body)));
       client.subscribe(API.topicMachine, (frame) => onMachine(JSON.parse(frame.body)));
-      refresh(); // reload in case something changed while disconnected
+      refresh();
     },
-    // Without the connection we cannot know the machine status, so show it as offline.
-    onWebSocketClose: () => { state.machine.connected = false; render(); },
+    onWebSocketClose: () => {
+      state.machine.connected = false;
+      state.cart = {};
+      render();
+    },
   });
   client.activate();
 }
 
-/* ---------- mock mode ---------- */
+/* ---------- mock mode (?mock=1) ---------- */
 
-// Fake data and a fake machine, for testing the screen without the back end (?mock=1).
 function startMock() {
-  const stock = (ml) => ({ currentQuantityMl: ml });
-  const lime = stock(900), passion = stock(700), soda = stock(1500), mint = stock(80);
-  const use = (ingredient, quantityMl) => ({ ingredient, quantityMl }); // one recipe line
+  const stock = (id, name, ml) => ({ id, name, currentQuantityMl: ml });
+  const lime = stock(1, 'Limão', 120);   // propositalmente baixo pra testar desconto ao vivo
+  const passion = stock(2, 'Maracujá', 700);
+  const soda = stock(3, 'Água com gás', 1500);
+  const mint = stock(4, 'Hortelã', 80);
+  const use = (ingredient, quantityMl) => ({ ingredient, quantityMl });
+
   state.drinks = [
     { id: 1, name: 'Suco de limão', recipes: [use(lime, 60), use(soda, 140)] },
     { id: 2, name: 'Maracujá', recipes: [use(passion, 80), use(soda, 120)] },
-    { id: 3, name: 'Mojito sem álcool', recipes: [use(lime, 40), use(mint, 20), use(soda, 140)] },
-    { id: 4, name: 'Refresco de hortelã', recipes: [use(mint, 90)] }, // not enough mint: shows the out-of-stock state
+    { id: 3, name: 'Mojito sem álcool', recipes: [use(lime, 60), use(mint, 20), use(soda, 140)] },
+    { id: 4, name: 'Refresco de hortelã', recipes: [use(mint, 90)] }, // sem estoque
   ];
+
   let nextId = 0;
-  // Pretend the machine connects shortly after the page opens.
-  setTimeout(() => onMachine({ connected: true, cupPresent: null }), 300);
+  const queue = [];
+  let currentOrderId = null;
+  let activeTimers = [];
+
+  const clearMockTimers = () => {
+    activeTimers.forEach(clearTimeout);
+    activeTimers = [];
+  };
+
+  setTimeout(() => onMachine({ status: 'ONLINE' }), 300);
+
+  function processNext() {
+    if (currentOrderId !== null || !queue.length) return;
+    const order = queue.shift();
+    currentOrderId = order.id;
+    onOrder({ ...order, status: 'IN_PREPARATION' });
+
+    activeTimers.push(setTimeout(() => {
+      if (currentOrderId !== order.id) return;
+      onMachine({ estado: 'PROCURANDO', pedidoId: order.id });
+    }, 500));
+
+    activeTimers.push(setTimeout(() => {
+      if (currentOrderId !== order.id) return;
+      onMachine({ estado: 'ENCHENDO', pedidoId: order.id });
+    }, 1500));
+
+    activeTimers.push(setTimeout(() => {
+      if (currentOrderId !== order.id) return;
+      onMachine({ estado: 'CONCLUIDO', pedidoId: order.id });
+      onOrder({ ...order, status: 'COMPLETED' });
+      currentOrderId = null;
+      clearMockTimers();
+      setTimeout(processNext, 700);
+    }, 3000));
+  }
+
   return {
-    // Simulates an order: uses the stock, then fills the glass in steps of 4% every 150 ms.
-    order(drinkId) {
-      const drink = state.drinks.find((d) => d.id === drinkId);
-      drink.recipes.forEach((r) => { r.ingredient.currentQuantityMl -= r.quantityMl; });
-      const order = { id: ++nextId, drink, dateTime: new Date().toISOString(), status: 'IN_PREPARATION' };
-      onOrder(order);
-      let progress = 0;
-      const timer = setInterval(() => {
-        progress += 4;
-        if (progress < 100) return onMachine({ connected: true, cupPresent: progress > 20, progress, orderId: order.id }); // no cup for the first ticks
-        clearInterval(timer);
-        onOrder({ ...order, status: 'COMPLETED' });
-      }, 150);
+    enqueue(drinkIds) {
+      for (const drinkId of drinkIds) {
+        const drink = state.drinks.find((d) => d.id === drinkId);
+        drink.recipes.forEach((r) => { r.ingredient.currentQuantityMl -= recipeQty(r); });
+        const order = { id: ++nextId, drink, dateTime: new Date().toISOString(), status: 'PENDING' };
+        queue.push(order);
+        upsertOrder(order);
+      }
+      render();
+      setTimeout(processNext, 300);
+    },
+    cancel(orderId) {
+      const idx = queue.findIndex((o) => o.id === orderId);
+      if (idx !== -1) queue.splice(idx, 1);
+
+      const order = state.orders.find((o) => o.id === orderId);
+      if (order) {
+        if (ACTIVE.includes(order.status)) {
+          order.drink?.recipes?.forEach((r) => { r.ingredient.currentQuantityMl += recipeQty(r); });
+        }
+        onOrder({ ...order, status: 'CANCELLED' });
+      }
+
+      // Aborta os timers do pedido que estava em preparo e chama o próximo da fila
+      if (currentOrderId === orderId) {
+        clearMockTimers();
+        currentOrderId = null;
+        setTimeout(processNext, 400);
+      }
     },
   };
 }
 
-/* ---------- boot ---------- */
+/* ---------- interactions & boot ---------- */
 
 const mock = MOCK ? startMock() : null;
 
-// One listener on the container handles every "Prepare drink" button (event delegation).
-// This works even though the buttons are recreated every time the grid is redrawn.
-$('drinks').addEventListener('click', async (e) => {
-  const btn = e.target.closest('.prepare');
-  if (!btn || btn.disabled) return; // the click was not on an enabled button
-  const drinkId = Number(btn.dataset.id); // data-id from the button
-  state.sending = true; // blocks the other buttons until the request ends
+// Cliques nos botões − e + de cada card
+$('drinks').addEventListener('click', (e) => {
+  const btn = e.target.closest('.step-btn');
+  if (!btn || btn.disabled) return;
+
+  const id = Number(btn.dataset.id);
+  const action = btn.dataset.action;
+  const current = state.cart[id] || 0;
+
+  if (action === 'inc') {
+    if (totalSelected() >= MAX_ORDER) return;
+    const drink = state.drinks.find((d) => d.id === id);
+    if (!drink || extraServings(drink, remainingStock()) < 1) return;
+    state.cart[id] = current + 1;
+  } else if (action === 'dec' && current > 0) {
+    if (current === 1) delete state.cart[id];
+    else state.cart[id] = current - 1;
+  }
+
+  renderDrinks();
+  renderOrderBar();
+});
+
+// Limpar seleção
+$('clear-order').addEventListener('click', () => {
+  state.cart = {};
+  renderDrinks();
+  renderOrderBar();
+});
+
+// Enviar lote (1 a 3 pedidos PENDING para o backend / ESP32)
+$('submit-order').addEventListener('click', async () => {
+  if (globalBlock() || totalSelected() === 0) return;
+
+  const drinkIds = [];
+  for (const [idStr, qty] of Object.entries(state.cart)) {
+    for (let i = 0; i < qty; i++) drinkIds.push(Number(idStr));
+  }
+
+  state.sending = true;
   render();
+
   try {
-    if (mock) mock.order(drinkId);
-    else onOrder(await http(API.orders, { method: 'POST', body: JSON.stringify({ drinkId, copos: 1 }) }));
+    if (mock) {
+      state.cart = {};
+      mock.enqueue(drinkIds);
+      toast(`${drinkIds.length} ${drinkIds.length === 1 ? 'bebida enviada' : 'bebidas enviadas'} para a fila!`);
+    } else {
+      let sent = 0;
+      for (const drinkId of drinkIds) {
+        const created = await http(API.orders, {
+          method: 'POST',
+          body: JSON.stringify({ drinkId, copos: 1 }),
+        });
+        upsertOrder(created);
+        sent++;
+      }
+      state.cart = {};
+      toast(`${sent} ${sent === 1 ? 'bebida enviada' : 'bebidas enviadas'} para a fila!`);
+      await refresh();
+    }
   } catch (err) {
-    toast(err.message || 'Não foi possível iniciar a bebida.');
+    toast(err.message || 'Não foi possível enviar o pedido.');
+    await refresh();
   } finally {
     state.sending = false;
     render();
   }
 });
 
-render(); // first draw, with an empty state
+render();
 if (!MOCK) {
   refresh();
-  setInterval(refresh, 10000); // safety net in case a WebSocket message is missed
+  setInterval(refresh, 10000);
   connectStomp();
 }
