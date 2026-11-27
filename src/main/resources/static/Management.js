@@ -235,7 +235,7 @@ function resetRestockForm() {
 
 $('rs-cancel').addEventListener('click', resetRestockForm);
 
-$('levels').addEventListener('click', (e) => {
+$('levels').addEventListener('click', async (e) => {
     const btn = e.target.closest('button[data-action]');
     if (!btn) return;
     const id = Number(btn.closest('[data-id]').getAttribute('data-id'));
@@ -243,24 +243,33 @@ $('levels').addEventListener('click', (e) => {
     const ing = state.ingredients.find((i) => Number(i.id) === id);
     if (!ing) return;
 
+    // Lembre de colocar `async` no listener pai: ex. $('levels').addEventListener('click', async (e) => {
     const action = btn.getAttribute('data-action');
     if (action === 'edit') {
         startEditIngredient(ing);
-    } else if (action === 'delete' && confirm(`Excluir o reservatório "${ing.name}"? Esta ação não pode ser desfeita.`)) {
-        const prevIngredients = [...state.ingredients];
-        optimistic({
-            okMessage: `Reservatório ${ing.name} excluído.`,
-            apply: () => {
-                state.ingredients = state.ingredients.filter((i) => Number(i.id) !== id);
-                if (state.editingIngId === id) resetRestockForm();
-                renderLevels(); renderIngredientInputs(); updateRestockSummary();
-            },
-            request: () => http(`${API.ingredients}/${id}`, 'DELETE'),
-            rollback: () => {
-                state.ingredients = prevIngredients;
-                renderLevels(); renderIngredientInputs(); updateRestockSummary();
-            },
+    } else if (action === 'delete') {
+        const ok = await showConfirm({
+            title: `Excluir reservatório "${ing.name}"?`,
+            message: 'Esta ação remove o ingrediente permanentemente do sistema e não pode ser desfeita.',
+            confirmText: 'Excluir reservatório',
         });
+
+        if (ok) {
+            const prevIngredients = [...state.ingredients];
+            optimistic({
+                okMessage: `Reservatório ${ing.name} excluído.`,
+                apply: () => {
+                    state.ingredients = state.ingredients.filter((i) => Number(i.id) !== id);
+                    if (state.editingIngId === id) resetRestockForm();
+                    renderLevels(); renderIngredientInputs(); updateRestockSummary();
+                },
+                request: () => http(`${API.ingredients}/${id}`, 'DELETE'),
+                rollback: () => {
+                    state.ingredients = prevIngredients;
+                    renderLevels(); renderIngredientInputs(); updateRestockSummary();
+                },
+            });
+        }
     }
 });
 
@@ -496,7 +505,7 @@ $('drink-form').addEventListener('submit', (e) => {
     }
 });
 
-$('menu').addEventListener('click', (e) => {
+$('menu').addEventListener('click', async (e) => {
     const btn = e.target.closest('[data-act]');
     if (!btn) return;
     const id = Number(btn.closest('.actions').dataset.id);
@@ -528,12 +537,17 @@ $('menu').addEventListener('click', (e) => {
             const lastDate = new Date(Math.max(...related.map((o) => toDate(o.dateTime).getTime())));
             extra = `• Pedidos que serão apagados: ${related.length} (último em ${lastDate.toLocaleDateString('pt-BR')})\n\n`;
         }
-        const msg = `Excluir "${drink.name}"?\n\n`
-            + extra
+        const msg = extra
             + 'ATENÇÃO: Ao excluir esta bebida, todos os pedidos dela também serão removidos permanentemente do histórico e dos gráficos/relatórios.\n\n'
             + 'Recomendação: exclua apenas bebidas que não são usadas há bastante tempo. Se quiser só tirar da tela de operação sem perder os dados, use "Ocultar do cardápio".';
 
-        if (confirm(msg)) {
+        const ok = await showConfirm({
+            title: `Excluir "${drink.name}"?`,
+            message: msg,
+            confirmText: 'Excluir bebida',
+        });
+
+        if (ok) {
             const prevDrinks = [...state.drinks];
             const prevOrders = [...state.orders];
             optimistic({
@@ -608,3 +622,75 @@ async function mockApi(url, method, body) {
 
 load();
 if (!MOCK) setInterval(() => { if (pendingOps === 0) load(); }, 15000);
+
+/* Messages modal*/
+
+function showConfirm({
+                         title = 'Confirmar ação',
+                         message = 'Tem certeza que deseja continuar?',
+                         confirmText = 'Excluir',
+                         cancelText = 'Voltar',
+                     } = {}) {
+    return new Promise((resolve) => {
+        let backdrop = document.getElementById('cmodal-backdrop');
+
+        if (!backdrop) {
+            backdrop = document.createElement('div');
+            backdrop.id = 'cmodal-backdrop';
+            backdrop.className = 'cmodal-backdrop';
+            backdrop.innerHTML = `
+        <div class="cmodal-card" role="dialog" aria-modal="true" aria-labelledby="cmodal-title">
+          <div class="cmodal-header">
+            <div class="cmodal-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M3 6h18"/><path d="M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2"/>
+                <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>
+                <path d="M10 11v6"/><path d="M14 11v6"/>
+              </svg>
+            </div>
+            <h3 class="cmodal-title" id="cmodal-title"></h3>
+          </div>
+          <p class="cmodal-msg" id="cmodal-msg"></p>
+          <div class="cmodal-actions">
+            <button type="button" class="cmodal-btn cmodal-btn-cancel" id="cmodal-cancel"></button>
+            <button type="button" class="cmodal-btn cmodal-btn-danger" id="cmodal-ok"></button>
+          </div>
+        </div>
+      `;
+            document.body.appendChild(backdrop);
+        }
+
+        const titleEl  = backdrop.querySelector('#cmodal-title');
+        const msgEl    = backdrop.querySelector('#cmodal-msg');
+        const cancelEl = backdrop.querySelector('#cmodal-cancel');
+        const okEl     = backdrop.querySelector('#cmodal-ok');
+
+        titleEl.textContent  = title;
+        msgEl.textContent    = message;
+        cancelEl.textContent = cancelText;
+        okEl.textContent     = confirmText;
+
+        const close = (result) => {
+            backdrop.classList.remove('is-open');
+            document.removeEventListener('keydown', onKey);
+            backdrop.onclick = null;
+            cancelEl.onclick = null;
+            okEl.onclick = null;
+            resolve(result);
+        };
+
+        const onKey = (e) => {
+            if (e.key === 'Escape') close(false);
+        };
+
+        backdrop.onclick = (e) => { if (e.target === backdrop) close(false); };
+        cancelEl.onclick = () => close(false);
+        okEl.onclick     = () => close(true);
+        document.addEventListener('keydown', onKey);
+
+        requestAnimationFrame(() => {
+            backdrop.classList.add('is-open');
+            cancelEl.focus();
+        });
+    });
+}

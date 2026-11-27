@@ -342,7 +342,12 @@ $('orders').addEventListener('click', async (e) => {
   if (!btn || btn.disabled) return;
 
   const id = Number(btn.dataset.id);
-  if (!confirm(`Cancelar o pedido #${id}?`)) return;
+  const ok = await showConfirm({
+    title: `Cancelar pedido #${id}?`,
+    message: 'Se o drink já estiver sendo preparado, as bombas serão interrompidas.',
+    confirmText: 'Cancelar pedido',
+  });
+  if (!ok) return;
 
   btn.disabled = true;
   try {
@@ -650,4 +655,77 @@ if (!MOCK) {
   refresh();
   setInterval(refresh, 10000);
   connectStomp();
+}
+
+
+/* Messages modal*/
+
+function showConfirm({
+                       title = 'Confirmar ação',
+                       message = 'Tem certeza que deseja continuar?',
+                       confirmText = 'Excluir',
+                       cancelText = 'Voltar',
+                     } = {}) {
+  return new Promise((resolve) => {
+    let backdrop = document.getElementById('cmodal-backdrop');
+
+    if (!backdrop) {
+      backdrop = document.createElement('div');
+      backdrop.id = 'cmodal-backdrop';
+      backdrop.className = 'cmodal-backdrop';
+      backdrop.innerHTML = `
+        <div class="cmodal-card" role="dialog" aria-modal="true" aria-labelledby="cmodal-title">
+          <div class="cmodal-header">
+            <div class="cmodal-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M3 6h18"/><path d="M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2"/>
+                <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>
+                <path d="M10 11v6"/><path d="M14 11v6"/>
+              </svg>
+            </div>
+            <h3 class="cmodal-title" id="cmodal-title"></h3>
+          </div>
+          <p class="cmodal-msg" id="cmodal-msg"></p>
+          <div class="cmodal-actions">
+            <button type="button" class="cmodal-btn cmodal-btn-cancel" id="cmodal-cancel"></button>
+            <button type="button" class="cmodal-btn cmodal-btn-danger" id="cmodal-ok"></button>
+          </div>
+        </div>
+      `;
+      document.body.appendChild(backdrop);
+    }
+
+    const titleEl  = backdrop.querySelector('#cmodal-title');
+    const msgEl    = backdrop.querySelector('#cmodal-msg');
+    const cancelEl = backdrop.querySelector('#cmodal-cancel');
+    const okEl     = backdrop.querySelector('#cmodal-ok');
+
+    titleEl.textContent  = title;
+    msgEl.textContent    = message;
+    cancelEl.textContent = cancelText;
+    okEl.textContent     = confirmText;
+
+    const close = (result) => {
+      backdrop.classList.remove('is-open');
+      document.removeEventListener('keydown', onKey);
+      backdrop.onclick = null;
+      cancelEl.onclick = null;
+      okEl.onclick = null;
+      resolve(result);
+    };
+
+    const onKey = (e) => {
+      if (e.key === 'Escape') close(false);
+    };
+
+    backdrop.onclick = (e) => { if (e.target === backdrop) close(false); };
+    cancelEl.onclick = () => close(false);
+    okEl.onclick     = () => close(true);
+    document.addEventListener('keydown', onKey);
+
+    requestAnimationFrame(() => {
+      backdrop.classList.add('is-open');
+      cancelEl.focus();
+    });
+  });
 }
